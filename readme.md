@@ -4,6 +4,14 @@ Melt is an open-source, self-hosted Rust proxy that sits in front of Snowflake a
 
 Any client that speaks Snowflake's REST wire protocol — JDBC, the Python connector, Go, Looker, Sigma, Hex, dbt — connects to Melt unmodified. Every statement gets its own routing decision. The lake copy stays fresh via CDC streams pulled out of Snowflake.
 
+## Why Melt exists
+
+Human-driven Snowflake workloads have natural throttles — analysts run dashboards a few times a day, dbt models materialize overnight, ad-hoc queries happen when someone asks a question. AI agents don't run at that cadence. Copilots, research agents, and autonomous pipelines now generate and execute SQL at machine speed: tens of queries per prompt, thousands per day per agent, most of them small filters and joins the agent is iterating on until the answer looks right. Each one bills a warehouse.
+
+The bet behind Melt is that most of those reads don't actually need Snowflake compute. If the underlying Parquet is already on S3 via a lakehouse table, DuckDB can run the small-to-medium query locally for cents — no warehouse spin-up, no credit burn, no minimum billing window. Writes, Snowflake-specific features, and genuinely large joins stay on Snowflake, where they belong.
+
+The routing decision is per-query and invisible to the agent or driver issuing it. You don't rewrite your dbt project, your BI tool, or your agent's prompt. You change one connection string, and the queries that can run cheaper, do.
+
 ## How Melt routes a query
 
 For each incoming statement Melt classifies the query (write detection, Snowflake-feature probe, allowlist / policy gates) and emits one of three routes:
@@ -46,24 +54,6 @@ melt/
 ├── melt.toml             # Placeholder config (copy to melt.local.toml for dev)
 └── docker-compose.yml    # Melt + Postgres + MinIO dev stack
 ```
-
-## Documentation
-
-- [Overview](docs/overview.md) — what Melt is, how it's split into services, the three routes.
-- [Architecture](docs/architecture.md) — what each subcommand runs, sync loops, table state machine.
-- [Configuration reference](docs/configuration.md) — every field in `melt.toml`.
-- [CLI reference](crates/melt-cli/readme.md) — the `melt` binary's subcommands and flags.
-
-Guides:
-
-- [Docker Compose quickstart](docs/guides/quickstart-docker.md)
-- [Local quickstart (DuckLake / Iceberg)](docs/guides/quickstart-local.md)
-- [Issuing queries (curl, Python, Rust)](docs/guides/issuing-queries.md)
-- [Service authentication (sync creds + Snowflake grants)](docs/guides/service-authentication.md)
-- [Sync (allowlist, state machine, hot reload)](docs/guides/sync.md)
-- [Object storage (AWS / MinIO / R2 / B2 / Wasabi)](docs/guides/object-storage.md)
-- [TLS (localhost + two production paths)](docs/guides/tls.md)
-- [Policy modes (passthrough / allowlist / enforce)](docs/guides/policy-modes.md)
 
 ## Quick start (Docker — recommended)
 
@@ -135,6 +125,24 @@ cargo run --bin melt -- --config melt.local.toml all          # proxy + sync
 cargo run --bin melt -- --config melt.local.toml start        # proxy only
 cargo run --bin melt -- --config melt.local.toml sync run     # sync only
 ```
+
+## Documentation
+
+- [Overview](docs/overview.md) — what Melt is, how it's split into services, the three routes.
+- [Architecture](docs/architecture.md) — core architecture
+- [Configuration reference](docs/configuration.md) — every field in `melt.toml`.
+- [CLI reference](crates/melt-cli/readme.md) — the `melt` binary's subcommands and flags.
+
+Guides:
+
+- [Docker Compose quickstart](docs/guides/quickstart-docker.md)
+- [Local quickstart (DuckLake / Iceberg)](docs/guides/quickstart-local.md)
+- [Issuing queries (curl, Python, Rust)](docs/guides/issuing-queries.md)
+- [Service authentication (sync creds + Snowflake grants)](docs/guides/service-authentication.md)
+- [Sync (allowlist, state machine, hot reload)](docs/guides/sync.md)
+- [Object storage (AWS / MinIO / R2 / B2 / Wasabi)](docs/guides/object-storage.md)
+- [TLS (localhost + two production paths)](docs/guides/tls.md)
+- [Policy modes (passthrough / allowlist / enforce)](docs/guides/policy-modes.md)
 
 ## License
 
