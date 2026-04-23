@@ -1,0 +1,21 @@
+[package]
+name = "melt-router"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+melt-core = { workspace = true }
+melt-snowflake = { workspace = true }
+melt-metrics = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+sqlparser = { workspace = true }
+lru = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+thiserror = { workspace = true }
+bytesize = { workspace = true }

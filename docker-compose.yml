@@ -1,0 +1,115 @@
+# Local dev stack: melt + Postgres (DuckLake catalog) + MinIO (S3).
+#
+# Bring up:
+#   docker compose up --build
+#
+# Just deps (run melt natively from cargo):
+#   docker compose up postgres minio minio-init
+#
+# Tear down + wipe state:
+#   docker compose down --volumes
+#
+# Logs:
+#   docker compose logs -f melt
+#
+# Exec into a one-shot melt for `route` / `status`:
+#   docker compose run --rm melt route "SELECT IFF(x>0,'a','b') FROM analytics.public.events"
+
+x-melt-env: &melt-env
+  RUST_LOG: info
+  AWS_ACCESS_KEY_ID: melt
+  AWS_SECRET_ACCESS_KEY: meltmelt
+  AWS_REGION: us-east-1
+  AWS_ENDPOINT_URL: http://minio:9000
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: melt
+      POSTGRES_PASSWORD: melt
+      POSTGRES_DB: melt_catalog
+    volumes:
+      - melt-pg:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U melt -d melt_catalog"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: melt
+      MINIO_ROOT_PASSWORD: meltmelt
+    volumes:
+      - melt-minio:/data
+    ports:
+      - "9000:9000"     # S3 API
+      - "9001:9001"     # web console
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # One-shot job that creates the lakehouse bucket once MinIO is healthy.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 melt meltmelt &&
+        (mc mb --ignore-existing local/melt) &&
+        echo 'bucket ready: s3://melt/'
+      "
+    restart: "no"
+
+  melt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Override at build time: --build-arg MELT_FEATURES=ducklake
+        MELT_FEATURES: ""
+    image: melt:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *melt-env
+    ports:
+      - "8443:8443"   # proxy
+      - "9090:9090"   # metrics admin
+    volumes:
+      # Default = `docker/melt.docker.toml`. Override with the
+      # MELT_CONFIG env var (or set it in `.env`):
+      #
+      #   MELT_CONFIG=./melt.local.toml docker compose up
+      #
+      # Path is relative to the directory you run `docker compose`
+      # from (the same dir as this file). Inside the container the
+      # config is always mounted at /etc/melt/melt.toml.
+      - ${MELT_CONFIG:-./docker/melt.docker.toml}:/etc/melt/melt.toml:ro
+    # `all` runs proxy + sync + admin in one process. Override the
+    # subcommand with MELT_CMD when you want to split deployments:
+    #
+    #   MELT_CMD=start docker compose up melt
+    #   MELT_CMD=sync  docker compose up melt
+    command: ["--config", "/etc/melt/melt.toml", "${MELT_CMD:-all}"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  melt-pg:
+  melt-minio:

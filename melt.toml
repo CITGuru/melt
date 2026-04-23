@@ -1,0 +1,199 @@
+# Melt runtime config — committed PLACEHOLDER example.
+#
+# DO NOT put real account locators, hostnames, passwords, or bucket
+# names in this file. Copy it to `melt.local.toml` (gitignored) and
+# edit that one for local development:
+#
+#     cp melt.toml melt.local.toml
+#     melt --config melt.local.toml all
+
+[proxy]
+listen   = "0.0.0.0:8443"
+tls_cert = "/etc/melt/cert.pem"
+tls_key  = "/etc/melt/key.pem"
+
+[proxy.limits]
+request_timeout            = "30s"
+max_concurrent_per_session = 16
+max_concurrent_global      = 256
+result_store_max_bytes     = "2GB"
+result_store_max_entries   = 10000
+result_store_idle_ttl      = "5m"
+shutdown_drain_timeout     = "30s"
+# Maximum HTTP body size on proxy routes (login / statement / partition).
+# Caps memory pressure from oversized bodies; raise for bulk workflows.
+max_body_bytes             = "16MiB"
+
+[snowflake]
+# Snowflake account identifier — what drivers send in the login body.
+# Org-account form (recommended): "<orgname>-<accountname>", e.g.
+# "ACMECORP-PROD123". Locator-only form (legacy): the bare locator,
+# e.g. "xy12345" — when using locator form, set `host` explicitly
+# below or the URL won't resolve outside us-west-2.
+account         = "xy12345"
+
+# Explicit upstream hostname. Set this when:
+#  - account is in locator form + outside us-west-2:
+#      host = "xy12345.us-east-1.snowflakecomputing.com"
+#      host = "abc123.east-us-2.azure.snowflakecomputing.com"
+#  - going through PrivateLink:
+#      host = "<account>.privatelink.snowflakecomputing.com"
+#  - using a custom CNAME or SAN-strict setup.
+# Empty = derive "<account>.snowflakecomputing.com" — only honest for
+# the org-account form.
+host            = ""
+
+request_timeout = "60s"
+max_retries     = 3
+
+# ── Service authentication ──────────────────────────────────────
+# Sync's background loops (CDC reader + policy refresh) call
+# Snowflake on a timer with no human in the loop. They need a
+# long-lived credential bound to a dedicated service user.
+#
+# Set EXACTLY ONE of the four credential fields below. Drivers
+# connecting through the proxy supply their own credentials at
+# login time; these fields never affect proxy passthrough.
+
+# Option A: Programmatic Access Token (PAT) — simplest path.
+# Generate in Snowflake against a dedicated service user:
+#   ALTER USER MELT_SYNC_USER ADD PROGRAMMATIC ACCESS TOKEN melt_sync
+#     EXPIRY_DAYS = 90;
+pat      = ""
+pat_file = ""   # alt: path to a file whose contents is the PAT
+
+# Option B: RSA key-pair — production-grade, what Snowflake
+# recommends for service users. Generate a keypair, register the
+# public key on the service user:
+#   ALTER USER MELT_SYNC_USER SET RSA_PUBLIC_KEY = '<pubkey>';
+# Melt signs a fresh JWT per ~50 minutes and exchanges it for a
+# session token.
+private_key      = ""                        # inline PEM (rarely used)
+private_key_file = ""                        # preferred: path to .p8
+
+# Service user's Snowflake login name. REQUIRED when using
+# private_key / private_key_file. Ignored for PAT (which is
+# already bound to a user at issuance time).
+user             = ""
+
+# Session context for sync's outbound calls. All four are optional;
+# when set, they override the service user's DEFAULT_* settings.
+# At minimum set `role` and `warehouse` for predictable behavior.
+role             = ""
+warehouse        = ""
+database         = ""
+schema           = ""
+
+[snowflake.policy]
+mode             = "passthrough"   # passthrough | allowlist | enforce
+refresh_interval = "60s"
+# tables = ["analytics.public.events", "analytics.public.users"]  # required for allowlist
+
+[router]
+lake_max_scan_bytes      = "100GB"
+table_exists_cache_ttl   = "5m"
+estimate_bytes_cache_ttl = "1m"
+
+[metrics]
+listen     = "0.0.0.0:9090"
+log_format = "json"          # json | pretty
+log_level  = "info"
+# Admin bearer token for POST /admin/reload. Required when `listen`
+# is non-loopback. Pick ONE of the two forms.
+admin_token_file = "/etc/melt/admin.token"
+# admin_token = "inline-secret-for-dev"
+
+# ── Sync: what Melt mirrors from Snowflake to the lake ────────────
+# Router and sync both consult this block. Glob patterns match
+# `DB.SCHEMA.TABLE` case-insensitively.
+[sync]
+# When true (the default), any table a query touches that isn't in
+# `exclude` gets registered as `pending` and sync bootstraps it on
+# the next tick. Set to false to only mirror tables in `include`.
+auto_discover = true
+
+# Always synced. Immune to idle demotion.
+include = [
+    # "ANALYTICS.PUBLIC.ORDERS",
+    # "ANALYTICS.MARTS.*",
+    # "DATA_*.STAGING.*",
+]
+
+# Wins over `include` + discovery. Built-in system excludes
+# (`SNOWFLAKE.*`, `*.INFORMATION_SCHEMA.*`, `*.*._STAGE_*`) are
+# applied automatically; anything here is additive.
+exclude = [
+    # "ANALYTICS.LEGACY.*",
+]
+
+[sync.lazy]
+max_initial_bytes           = "50GB"
+demotion_idle_days          = 30
+max_concurrent_bootstraps   = 2
+# When true, Melt runs `ALTER TABLE ... SET CHANGE_TRACKING = TRUE`
+# on discovered tables. Requires `GRANT APPLY CHANGE TRACKING ON
+# SCHEMA ... TO ROLE MELT_SYNC_ROLE`. Default false — bootstrap
+# fails loudly when change tracking is missing so operators know
+# to flip it.
+auto_enable_change_tracking = false
+# Apply SNOWFLAKE.*, *.INFORMATION_SCHEMA.*, *.*._STAGE_* excludes.
+exclude_system_schemas      = true
+# Cadence of the idle-table sweeper.
+demotion_interval           = "1h"
+
+# ── View-aware sync ─────────────────────────────────────────────
+# Snowflake views are bootstrapped via one of two strategies:
+#   1. decomposed — a DuckDB view over the synced base tables
+#      (no duplicate storage; queries evaluate against the sources).
+#   2. stream_on_view — `CREATE STREAM ... ON VIEW`; the view's
+#      output materializes as a regular lake table at its FQN.
+# Melt prefers decomposition because it supports more view bodies
+# (GROUP BY / DISTINCT / QUALIFY / LIMIT all work — DuckDB evaluates
+# them) and doesn't duplicate storage. Secure views, materialized
+# views, and external tables land in `quarantined` automatically.
+[sync.views]
+# When true, a view's base-table dependencies get auto-registered as
+# `source = 'view_dependency'` so they sync alongside the view.
+# Turn off to require every base table to appear in `sync.include`.
+auto_include_dependencies = true
+# When true, skip decomposition and go straight to stream-on-view.
+# Useful when you know your views use Snowflake-only functions that
+# don't translate to DuckDB.
+prefer_stream_on_view     = false
+# Cap on how deep sync follows views-on-views. Beyond this depth the
+# view lands in `quarantined` with `view_body_unsupported`.
+max_dependency_depth      = 4
+
+# Pick exactly ONE backend table.
+
+[backend.ducklake]
+catalog_url       = "postgres://melt:secret@db.internal/melt_catalog"
+data_path         = "s3://acme-melt/ducklake/"
+reader_pool_size  = 16
+writer_pool_size  = 1
+
+# S3-compatible object store for the DuckLake data files. Rendered
+# into DuckDB's `CREATE SECRET (TYPE S3, ...)`. Works with AWS,
+# MinIO, Cloudflare R2, Backblaze B2, Wasabi, Ceph, GCS (HMAC), …
+[backend.ducklake.s3]
+region    = "us-east-1"
+# endpoint  = ""                  # omit for AWS; set for MinIO/R2/B2/etc.
+# url_style = "vhost"             # "path" for MinIO / Ceph / localhost
+# use_ssl   = true                # false for http:// MinIO
+# Credentials. Pick ONE row, OR leave blank → DuckDB's credential_chain
+# (env vars, ~/.aws/credentials, IMDS, SSO). That's the right default
+# on AWS EC2 / EKS.
+# access_key_id_env     = "AWS_ACCESS_KEY_ID"
+# secret_access_key_env = "AWS_SECRET_ACCESS_KEY"
+# session_token_env     = "AWS_SESSION_TOKEN"   # temp creds only
+# access_key_id         = ""                    # inline (dev only)
+# secret_access_key     = ""
+# scope                 = "s3://acme-melt/"     # restrict secret's reach
+
+# [backend.iceberg]
+# catalog   = "rest"
+# warehouse = "s3://acme-melt/iceberg/"
+# rest_uri  = "http://iceberg-rest:8181"
+#
+# [backend.iceberg.s3]
+# region = "us-east-1"

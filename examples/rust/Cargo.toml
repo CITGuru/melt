@@ -1,0 +1,19 @@
+[package]
+name = "melt-rust-client-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone Cargo project — intentionally NOT a workspace member of
+# the parent `melt/` workspace. Keeps the example portable: copy the
+# `examples/rust` directory anywhere and `cargo run` works.
+#
+# The empty `[workspace]` table below tells Cargo "this Cargo.toml is
+# its own workspace root", so the parent `melt/Cargo.toml` doesn't
+# try to absorb it.
+[workspace]
+
+[dependencies]
+snowflake-connector-rs = "0.9"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow = "1"

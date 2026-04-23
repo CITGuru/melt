@@ -1,0 +1,93 @@
+# Melt runtime config — Docker Compose flavour.
+# Hostnames here resolve inside the compose network (`postgres`,
+# `minio`); from the host you'd use `localhost` instead. See
+# `melt.toml` at the workspace root for the canonical reference.
+
+[proxy]
+listen   = "0.0.0.0:8443"
+tls_cert = "/etc/melt/cert.pem"   # missing → plain HTTP fallback (dev only)
+tls_key  = "/etc/melt/key.pem"
+
+[proxy.limits]
+request_timeout            = "30s"
+max_concurrent_per_session = 16
+max_concurrent_global      = 256
+result_store_max_bytes     = "1GB"
+result_store_max_entries   = 1000
+result_store_idle_ttl      = "5m"
+shutdown_drain_timeout     = "10s"
+
+[snowflake]
+# Replace with a real Snowflake account identifier to run live queries.
+# Org-account form (recommended): "<orgname>-<accountname>".
+# Locator-only form: set `host` below to the full URL, otherwise the
+# default derivation will only work for accounts in us-west-2.
+# With this placeholder, login forwards return 502 and statement
+# requests return 401 — `melt route` still works fully.
+account         = "xy12345"
+host            = ""
+request_timeout = "60s"
+max_retries     = 3
+
+# Sync service credential — pick one. Mount as a file via a k8s
+# Secret volume in real deployments.
+pat              = ""
+pat_file         = ""
+private_key      = ""
+private_key_file = ""
+user             = ""
+role             = ""
+warehouse        = ""
+database         = ""
+schema           = ""
+
+[snowflake.policy]
+mode             = "passthrough"
+refresh_interval = "60s"
+
+[router]
+lake_max_scan_bytes      = "100GB"
+table_exists_cache_ttl   = "5m"
+estimate_bytes_cache_ttl = "1m"
+
+[sync]
+auto_discover = true
+
+[sync.lazy]
+max_initial_bytes         = "50GB"
+demotion_idle_days        = 30
+max_concurrent_bootstraps = 2
+auto_enable_change_tracking = false
+exclude_system_schemas    = true
+
+[sync.views]
+auto_include_dependencies = true
+prefer_stream_on_view     = false
+max_dependency_depth      = 4
+
+[metrics]
+listen     = "0.0.0.0:9090"
+log_format = "json"
+log_level  = "info"
+# Admin bearer token. REQUIRED when `listen` is non-loopback — the
+# guard in melt-metrics rejects a public admin listener without a
+# token at startup (see crates/melt-metrics/src/http.rs). This value
+# is DEV-ONLY; real deployments mount a secret file and reference
+# it via `admin_token_file = "/etc/melt/admin.token"` instead of
+# inlining a string. Rotate before pointing this at anything real.
+admin_token = "melt-docker-dev-token-not-for-prod"
+
+[backend.ducklake]
+catalog_url       = "postgres://melt:melt@postgres:5432/melt_catalog"
+data_path         = "s3://melt/ducklake/"
+reader_pool_size  = 8
+writer_pool_size  = 1
+
+# In-compose MinIO talks http + path-style on the internal network.
+[backend.ducklake.s3]
+region            = "us-east-1"
+endpoint          = "minio:9000"
+url_style         = "path"
+use_ssl           = false
+access_key_id     = "minioadmin"
+secret_access_key = "minioadmin"

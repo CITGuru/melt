@@ -1,0 +1,97 @@
+# ── Secrets ───────────────────────────────────────────────────────
+# Anything that looks like an env file or credential. NEVER commit
+# these — `examples/python/melt_demo.py` and `examples/rust` both
+# read SNOWFLAKE_PASSWORD / JWT from env, and Snowflake JWTs are
+# valid auth tokens with multi-month lifetimes.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p8
+*.p12
+*.pfx
+secrets/
+**/private_key.*
+*.local.toml
+# Admin reload bearer tokens. `[metrics].admin_token_file` and
+# `melt sync reload --token-file` both point at files like these.
+admin.token
+*.admin.token
+admin_token
+admin_token.txt
+
+# ── Rust ──────────────────────────────────────────────────────────
+target/
+**/target/
+**/*.rs.bk
+*.pdb
+# `Cargo.lock` is tracked at the workspace root (binary crates) but
+# ignored under examples/rust because that's a standalone template.
+examples/rust/Cargo.lock
+
+# ── Python (examples/python) ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.python-version
+
+# Per-operator query variants for `router_demo.py`. The harness
+# is generic (`--variants <path>` works on any directory of *.sql
+# files), but any variants committed here would necessarily reference
+# real table names / schemas from the operator's data warehouse.
+# Operators keep their variants local; if a set becomes genuinely
+# generic and shareable, drop it at a different path and update the
+# demo's README pointer.
+examples/python/variants/
+!examples/python/variants/.gitkeep
+
+# ── Docker / Compose ──────────────────────────────────────────────
+# Local-only overrides (convention from compose docs).
+docker-compose.override.yml
+docker-compose.*.local.yml
+# Compose doesn't write state here, but operators sometimes mount
+# named volumes onto bind mounts under ./data; keep that out.
+data/
+volumes/
+
+# ── Editors / IDEs ────────────────────────────────────────────────
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+# ── OS junk ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Build & profiling artifacts ───────────────────────────────────
+*.log
+*.tmp
+*.pid
+flamegraph.svg
+perf.data*
+callgrind.out.*
+
+# ── Coverage ──────────────────────────────────────────────────────
+*.profraw
+*.profdata
+coverage/
+lcov.info
+
+
+/docs/internal/
+
+.claude/
+.cursor/

@@ -1,0 +1,40 @@
+# Keep build context small — workspace target dir alone is multi-GB.
+target/
+**/target/
+**/*.rs.bk
+
+# Caches & local-only artifacts
+.git/
+.github/
+.cursor/
+.cache/
+**/node_modules/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Client examples — built independently
+examples/rust/target/
+examples/rust/Cargo.lock
+examples/python/__pycache__/
+examples/python/.venv/
+
+# Local dev configs that shouldn't leak into the image
+melt.local.toml
+docker/melt.local.toml
+.env
+.env.*
+
+# Container & compose state
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# Docs / tests aren't needed at runtime
+docs/
+**/tests/
+**/fixtures/
+**/*.md
+!readme.md

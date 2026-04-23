@@ -1,0 +1,39 @@
+[package]
+name = "melt-proxy"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+arc-swap = { workspace = true }
+melt-core = { workspace = true }
+melt-metrics = { workspace = true }
+melt-snowflake = { workspace = true }
+melt-router = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+axum = { workspace = true }
+axum-server = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+hyper = { workspace = true }
+http = { workspace = true }
+bytes = { workspace = true }
+arrow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+lru = { workspace = true }
+parking_lot = { workspace = true }
+chrono = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }

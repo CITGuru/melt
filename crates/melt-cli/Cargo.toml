@@ -1,0 +1,47 @@
+[package]
+name = "melt-cli"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[[bin]]
+name = "melt"
+path = "src/main.rs"
+
+[features]
+default = ["ducklake", "iceberg"]
+ducklake = ["dep:melt-ducklake", "melt-ducklake/full"]
+iceberg = ["dep:melt-iceberg", "melt-iceberg/full"]
+
+[dependencies]
+melt-core = { workspace = true }
+melt-metrics = { workspace = true }
+melt-snowflake = { workspace = true }
+melt-control = { workspace = true }
+melt-router = { workspace = true }
+melt-proxy = { workspace = true }
+
+melt-ducklake = { workspace = true, optional = true }
+melt-iceberg = { workspace = true, optional = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+humantime-serde = { workspace = true }
+bytesize = { workspace = true }
+arc-swap = { workspace = true }
+metrics = { workspace = true }
+chrono = { workspace = true }
+arrow = { workspace = true }
+futures = { workspace = true }
+
+# `bootstrap server` / `bootstrap client` subcommands.
+rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
+time = { version = "0.3", default-features = false, features = ["std"] }
+reqwest = { workspace = true }
+sha2 = "0.10"

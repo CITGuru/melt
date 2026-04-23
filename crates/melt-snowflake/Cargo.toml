@@ -1,0 +1,42 @@
+[package]
+name = "melt-snowflake"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+melt-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+http = { workspace = true }
+bytes = { workspace = true }
+arrow = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+humantime-serde = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+base64 = "0.22"
+sqlparser = { workspace = true }
+
+# Service authentication (key-pair JWT path)
+jsonwebtoken = "9"
+sha2         = "0.10"
+pkcs8        = { version = "0.10", features = ["pem", "alloc"] }
+rsa          = { version = "0.9", features = ["pem", "sha2"] }
+
+[dev-dependencies]
+toml = { workspace = true }
+tempfile = "3"
+rand = "0.8"
