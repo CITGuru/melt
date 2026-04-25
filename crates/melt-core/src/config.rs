@@ -109,6 +109,63 @@ pub struct RouterConfig {
         default = "RouterConfig::default_estimate_ttl"
     )]
     pub estimate_bytes_cache_ttl: Duration,
+
+    // ── Hybrid / dual execution ──────────────────────────────────
+    // See `docs/internal/DUAL_EXECUTION.md` for the design.
+    /// Master switch. When false (default), `Route::Hybrid` is never
+    /// emitted — Remote-classified tables passthrough as today. When
+    /// true, the dual-execution router emits hybrid plans subject to
+    /// the per-strategy caps and trigger-case toggles below.
+    #[serde(default)]
+    pub hybrid_execution: bool,
+
+    // ── Materialize-strategy caps (per RemoteSql node, 2+ scans) ──
+    /// Total bytes the Materialize path may pull from Snowflake
+    /// across all fragments in one query. Above this, the whole
+    /// query collapses to `Route::Snowflake { AboveThreshold }`.
+    #[serde(default = "RouterConfig::default_hybrid_remote_cap")]
+    pub hybrid_max_remote_scan_bytes: ByteSize,
+    /// Per-fragment cap. Prevents one fragment eating the whole
+    /// budget.
+    #[serde(default = "RouterConfig::default_hybrid_fragment_cap")]
+    pub hybrid_max_fragment_bytes: ByteSize,
+
+    // ── Attach-strategy caps (per RemoteSql node, 1 scan) ────────
+    /// Set false to force every Remote node to Materialize. Useful
+    /// as a kill switch when the community Snowflake extension
+    /// misbehaves. The pool also flips this off automatically when
+    /// the extension fails to load at startup (§8.2 / §10.6).
+    #[serde(default = "RouterConfig::default_true")]
+    pub hybrid_attach_enabled: bool,
+    /// Per-Attach-scan raw estimate cap. Above this, the strategy
+    /// selector downgrades the node to Materialize (which then
+    /// applies the Materialize cap).
+    #[serde(default = "RouterConfig::default_hybrid_attach_cap")]
+    pub hybrid_max_attach_scan_bytes: ByteSize,
+
+    // ── Trigger-case toggles ─────────────────────────────────────
+    /// Allow Pending/Bootstrapping tables to be served via the
+    /// remote pool (Case 2 in the design doc).
+    #[serde(default)]
+    pub hybrid_allow_bootstrapping: bool,
+    /// Allow a single oversize lake table to be served via the
+    /// remote pool while the rest of the query stays local
+    /// (Case 3 in the design doc).
+    #[serde(default)]
+    pub hybrid_allow_oversize: bool,
+
+    // ── Diagnostic ───────────────────────────────────────────────
+    /// Probability with which the parity sampler replays the query
+    /// against pure Snowflake to detect type-drift mismatches.
+    /// 0.0 disables; 1.0 samples every query (very expensive).
+    #[serde(default = "RouterConfig::default_parity_sample_rate")]
+    pub hybrid_parity_sample_rate: f32,
+    /// When true, `execute_hybrid` reads DuckDB's profiler JSON
+    /// after each Attach query and logs the `snowflake_scan`
+    /// operator's emitted SQL. Off by default — profiler overhead
+    /// is non-trivial. Enable per-tenant during debugging.
+    #[serde(default)]
+    pub hybrid_profile_attach_queries: bool,
 }
 
 impl RouterConfig {
@@ -121,6 +178,21 @@ impl RouterConfig {
     fn default_estimate_ttl() -> Duration {
         Duration::from_secs(60)
     }
+    fn default_hybrid_remote_cap() -> ByteSize {
+        ByteSize::gib(5)
+    }
+    fn default_hybrid_fragment_cap() -> ByteSize {
+        ByteSize::gib(2)
+    }
+    fn default_hybrid_attach_cap() -> ByteSize {
+        ByteSize::gib(10)
+    }
+    fn default_parity_sample_rate() -> f32 {
+        0.01
+    }
+    fn default_true() -> bool {
+        true
+    }
 }
 
 impl Default for RouterConfig {
@@ -129,6 +201,15 @@ impl Default for RouterConfig {
             lake_max_scan_bytes: Self::default_lake_max(),
             table_exists_cache_ttl: Self::default_table_ttl(),
             estimate_bytes_cache_ttl: Self::default_estimate_ttl(),
+            hybrid_execution: false,
+            hybrid_max_remote_scan_bytes: Self::default_hybrid_remote_cap(),
+            hybrid_max_fragment_bytes: Self::default_hybrid_fragment_cap(),
+            hybrid_attach_enabled: Self::default_true(),
+            hybrid_max_attach_scan_bytes: Self::default_hybrid_attach_cap(),
+            hybrid_allow_bootstrapping: false,
+            hybrid_allow_oversize: false,
+            hybrid_parity_sample_rate: Self::default_parity_sample_rate(),
+            hybrid_profile_attach_queries: false,
         }
     }
 }

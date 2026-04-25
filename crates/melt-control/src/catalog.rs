@@ -77,17 +77,43 @@ impl ControlCatalog {
         Ok(())
     }
 
-    pub async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<u64> {
+    /// Per-table scan-byte estimate, in input order. Each element
+    /// covers direct bytes (for base tables) plus dependency bytes
+    /// (for decomposed views, summed across `melt_view_dependencies`).
+    /// Tables not tracked at all return `0`.
+    ///
+    /// The dual-execution router relies on per-table fidelity here for
+    /// the oversize trigger case (§10.3 in the design doc) and the
+    /// per-fragment Materialize cap.
+    pub async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<Vec<u64>> {
         if tables.is_empty() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
         let client = self.client().await?;
-        let in_clause = build_in_clause(tables);
-        // Decomposed views: 0 bytes locally; UNION dependency bytes via melt_view_dependencies.
+        // Inputs carry a 1-based `ord` so we can map the aggregated
+        // result back into the caller's order even when some tables
+        // are unknown (no rows from either CTE).
+        let inputs_clause = tables
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                format!(
+                    "({}, {}, {}, {})",
+                    i + 1,
+                    pg_lit(&t.database),
+                    pg_lit(&t.schema),
+                    pg_lit(&t.name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Decomposed views: 0 bytes locally; SUM dependency bytes via
+        // melt_view_dependencies. Each row tagged with `ord` so the
+        // outer query can GROUP BY input position.
         let sql = format!(
-            "WITH inputs(database, schema, name) AS (VALUES {in_clause}), \
+            "WITH inputs(ord, database, schema, name) AS (VALUES {inputs_clause}), \
                   direct AS ( \
-                      SELECT s.bytes \
+                      SELECT i.ord, s.bytes \
                       FROM inputs i \
                       JOIN melt_table_stats s ON s.database=i.database \
                                               AND s.schema=i.schema \
@@ -97,7 +123,7 @@ impl ControlCatalog {
                       ) \
                   ), \
                   deps AS ( \
-                      SELECT ds.bytes \
+                      SELECT i.ord, ds.bytes \
                       FROM inputs i \
                       JOIN melt_table_stats s ON s.database=i.database \
                                               AND s.schema=i.schema \
@@ -111,16 +137,39 @@ impl ControlCatalog {
                        AND ds.schema   = vd.dep_schema \
                        AND ds.name     = vd.dep_name \
                       WHERE s.object_kind = 'view' AND s.view_strategy = 'decomposed' \
+                  ), \
+                  combined AS ( \
+                      SELECT ord, bytes FROM direct \
+                      UNION ALL \
+                      SELECT ord, bytes FROM deps \
                   ) \
-             SELECT COALESCE(SUM(bytes), 0)::BIGINT \
-             FROM (SELECT bytes FROM direct UNION ALL SELECT bytes FROM deps) AS combined"
+             SELECT i.ord, COALESCE(SUM(c.bytes), 0)::BIGINT AS bytes \
+             FROM inputs i \
+             LEFT JOIN combined c ON c.ord = i.ord \
+             GROUP BY i.ord \
+             ORDER BY i.ord"
         );
-        let row = client
-            .query_one(&sql, &[])
+        let rows = client
+            .query(&sql, &[])
             .await
             .map_err(|e| MeltError::Catalog(CatalogError::Other(format!("estimate: {e}"))))?;
-        let bytes: i64 = row.get(0);
-        Ok(bytes.max(0) as u64)
+        // Rows come back in `ord` order; sanity-check the count matches
+        // the input slice so a mismatched row set surfaces as an error
+        // rather than silently producing wrong per-table estimates.
+        if rows.len() != tables.len() {
+            return Err(MeltError::Catalog(CatalogError::Other(format!(
+                "estimate_scan_bytes: expected {} rows, got {}",
+                tables.len(),
+                rows.len()
+            ))));
+        }
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let b: i64 = r.get("bytes");
+                b.max(0) as u64
+            })
+            .collect())
     }
 
     /// Return whether each input table exists AND is in `active` state.
@@ -281,7 +330,10 @@ impl ControlCatalog {
             .await
             .map_err(|e| MeltError::Catalog(CatalogError::Other(format!("tx begin: {e}"))))?;
         for t in tables {
-            // Upsert: bump last_queried_at; promote source→include on signal; sync_state untouched.
+            // Upsert: bump last_queried_at; promote source→include on
+            // signal; sync_state untouched. `remote` is operator-
+            // declared (`[sync].remote`) and must never be overwritten
+            // by automatic discovery — same intent as `include`.
             tx.execute(
                 "INSERT INTO melt_table_stats \
                    (database, schema, name, sync_state, source, \
@@ -290,6 +342,7 @@ impl ControlCatalog {
                  ON CONFLICT (database, schema, name) DO UPDATE \
                    SET last_queried_at = now(), \
                        source = CASE \
+                           WHEN melt_table_stats.source = 'remote' THEN 'remote' \
                            WHEN EXCLUDED.source = 'include' THEN 'include' \
                            ELSE melt_table_stats.source \
                        END",
@@ -674,6 +727,7 @@ impl ControlCatalog {
                  ON CONFLICT (database, schema, name) DO UPDATE \
                    SET last_queried_at = now(), \
                        source = CASE \
+                           WHEN melt_table_stats.source = 'remote' THEN 'remote' \
                            WHEN melt_table_stats.source = 'include' THEN 'include' \
                            WHEN melt_table_stats.source = 'discovered' THEN 'discovered' \
                            ELSE 'view_dependency' \

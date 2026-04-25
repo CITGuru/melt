@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use crate::hybrid::HybridPlan;
 use crate::table::TableRef;
 
 /// The router's decision for a single statement. Every variant carries
@@ -5,8 +8,23 @@ use crate::table::TableRef;
 /// can label by cause.
 #[derive(Clone, Debug)]
 pub enum Route {
-    Lake { reason: LakeReason },
-    Snowflake { reason: PassthroughReason },
+    Lake {
+        reason: LakeReason,
+    },
+    Snowflake {
+        reason: PassthroughReason,
+    },
+    /// Hybrid (dual-execution) — query touches both lake-resident and
+    /// Snowflake-resident tables. The `plan` carries the annotated
+    /// PlanNode tree, the Materialize fragments to fetch, the Attach
+    /// rewrites that have already been baked into `plan.local_sql`,
+    /// and the rendered DuckDB-dialect `local_sql`. See
+    /// `docs/internal/DUAL_EXECUTION.md` for the design.
+    Hybrid {
+        plan: Arc<HybridPlan>,
+        reason: HybridReason,
+        estimated_remote_bytes: u64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +72,50 @@ pub enum PassthroughReason {
     },
 }
 
+/// Why the router emitted `Route::Hybrid`. Used by metrics
+/// (`melt_router_hybrid_reasons_total{reason=…}`) and by the
+/// `melt route` CLI to explain the decision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HybridReason {
+    /// At least one referenced table matched a `[sync].remote` glob
+    /// (operator-declared never-synced).
+    RemoteByConfig,
+    /// At least one referenced table is in `pending` or `bootstrapping`
+    /// state and `hybrid_allow_bootstrapping = true` lets us federate
+    /// while the lake catches up.
+    RemoteBootstrapping,
+    /// At least one referenced table's per-table estimate exceeds
+    /// `lake_max_scan_bytes` and `hybrid_allow_oversize = true` lets
+    /// us federate just that table.
+    RemoteOversize,
+    /// More than one of the above triggers fired across different
+    /// tables in the same query.
+    MixedReasons,
+}
+
+impl HybridReason {
+    /// Stable label suitable for metric labels.
+    pub fn label(&self) -> &'static str {
+        match self {
+            HybridReason::RemoteByConfig => "remote_by_config",
+            HybridReason::RemoteBootstrapping => "remote_bootstrapping",
+            HybridReason::RemoteOversize => "remote_oversize",
+            HybridReason::MixedReasons => "mixed",
+        }
+    }
+}
+
+impl std::fmt::Display for HybridReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            HybridReason::RemoteByConfig => "RemoteByConfig",
+            HybridReason::RemoteBootstrapping => "RemoteBootstrapping",
+            HybridReason::RemoteOversize => "RemoteOversize",
+            HybridReason::MixedReasons => "MixedReasons",
+        })
+    }
+}
+
 /// Coarse-grained route kind, stored alongside `ResultStore` entries
 /// so cancel / poll handlers know whether to interrupt DuckDB or
 /// forward to Snowflake.
@@ -61,6 +123,7 @@ pub enum PassthroughReason {
 pub enum RouteKind {
     Lake,
     Snowflake,
+    Hybrid,
 }
 
 impl Route {
@@ -68,6 +131,7 @@ impl Route {
         match self {
             Route::Lake { .. } => "lake",
             Route::Snowflake { .. } => "snowflake",
+            Route::Hybrid { .. } => "hybrid",
         }
     }
 
@@ -75,6 +139,7 @@ impl Route {
         match self {
             Route::Lake { .. } => RouteKind::Lake,
             Route::Snowflake { .. } => RouteKind::Snowflake,
+            Route::Hybrid { .. } => RouteKind::Hybrid,
         }
     }
 }
@@ -95,5 +160,50 @@ impl PassthroughReason {
             PassthroughReason::BootstrappingTable { .. } => "bootstrapping_table",
             PassthroughReason::TableQuarantined { .. } => "table_quarantined",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hybrid::{NodeKind, Placement, PlanNode};
+
+    fn placeholder_plan() -> Arc<HybridPlan> {
+        Arc::new(HybridPlan {
+            root: PlanNode::new(
+                0,
+                NodeKind::Scan {
+                    table: TableRef::new("d", "s", "n"),
+                },
+                Placement::Local,
+            ),
+            remote_fragments: Vec::new(),
+            attach_rewrites: Vec::new(),
+            local_sql: String::new(),
+            estimated_remote_bytes: 0,
+        })
+    }
+
+    #[test]
+    fn hybrid_route_as_str() {
+        let route = Route::Hybrid {
+            plan: placeholder_plan(),
+            reason: HybridReason::RemoteByConfig,
+            estimated_remote_bytes: 0,
+        };
+        assert_eq!(route.as_str(), "hybrid");
+        assert_eq!(route.kind(), RouteKind::Hybrid);
+    }
+
+    #[test]
+    fn hybrid_reason_labels_are_stable_metric_strings() {
+        // Metrics consumers depend on these strings; flag any rename.
+        assert_eq!(HybridReason::RemoteByConfig.label(), "remote_by_config");
+        assert_eq!(
+            HybridReason::RemoteBootstrapping.label(),
+            "remote_bootstrapping"
+        );
+        assert_eq!(HybridReason::RemoteOversize.label(), "remote_oversize");
+        assert_eq!(HybridReason::MixedReasons.label(), "mixed");
     }
 }

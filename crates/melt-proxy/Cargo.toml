@@ -37,3 +37,5 @@ parking_lot = { workspace = true }
 chrono = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+rand = "0.8"
+sha2 = "0.10"

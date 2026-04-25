@@ -124,6 +124,22 @@ Mode behavior:
 | `table_exists_cache_ttl` | duration | `"5m"` | In-memory cache TTL for "does this table exist in the lake?" lookups |
 | `estimate_bytes_cache_ttl` | duration | `"1m"` | Cache TTL for per-table byte-size estimates |
 
+### Hybrid (dual-execution) routing — opt-in
+
+When enabled, the router can emit `Route::Hybrid` for queries that touch declared-remote tables (matched by `[sync].remote` globs) — running the lake-resident parts locally on DuckDB and federating the Snowflake-resident parts via the community Snowflake DuckDB extension (Attach strategy) or — once Materialize lands — Arrow IPC + temp-table staging. Opt-in per the rollout plan in [docs/internal/DUAL_EXECUTION.md](internal/DUAL_EXECUTION.md).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `hybrid_execution` | bool | `false` | Master switch. When false, Remote-classified tables passthrough as today (safe default). |
+| `hybrid_max_remote_scan_bytes` | byte size | `"5GiB"` | Sum across all Materialize fragments. Above this the whole query collapses to passthrough with `AboveThreshold`. |
+| `hybrid_max_fragment_bytes` | byte size | `"2GiB"` | Per-fragment cap. Prevents one fragment eating the whole budget. |
+| `hybrid_attach_enabled` | bool | `true` | Set false to force every Remote node to Materialize (kill switch when the community Snowflake extension misbehaves). The pool also flips it off automatically when the extension fails to load. |
+| `hybrid_max_attach_scan_bytes` | byte size | `"10GiB"` | Per-Attach-scan raw estimate cap. Above this the strategy selector downgrades the node to Materialize. |
+| `hybrid_allow_bootstrapping` | bool | `false` | Allow Pending/Bootstrapping tables to be served via the remote pool while the lake catches up. |
+| `hybrid_allow_oversize` | bool | `false` | Allow a single oversize lake table to be served via the remote pool while the rest of the query stays local. |
+| `hybrid_parity_sample_rate` | float | `0.01` | Probability with which the parity sampler replays the original SQL against pure Snowflake to detect type-drift mismatches. |
+| `hybrid_profile_attach_queries` | bool | `false` | When true, `execute_hybrid` reads DuckDB's profiler JSON after each Attach query and logs the `snowflake_scan` operator's emitted SQL. Off by default — profiler overhead is non-trivial. |
+
 ---
 
 ## `[metrics]`
@@ -157,8 +173,9 @@ What Melt mirrors from Snowflake to the lake, and whether the router auto-regist
 | `auto_discover` | bool | `true` | When true, any table a query touches that isn't in `exclude` is registered as `pending` and sync bootstraps it on the next tick |
 | `include` | array of globs | `[]` | Always-synced FQN patterns. Immune to idle demotion. Globs match case-insensitively against `DB.SCHEMA.TABLE` (e.g. `"ANALYTICS.MARTS.*"`, `"DATA_*.STAGING.*"`) |
 | `exclude` | array of globs | `[]` | Wins over `include` and auto-discovery. Built-in excludes (`SNOWFLAKE.*`, `*.INFORMATION_SCHEMA.*`, `*.*._STAGE_*`) are additive |
+| `remote` | array of globs | `[]` | **Hybrid (dual-execution)**. Tables matching these globs are NEVER synced — queries that touch them route through `Route::Hybrid` (Attach for single-scan nodes, Materialize for collapsed multi-scan subtrees) when `[router].hybrid_execution = true`. See [docs/internal/DUAL_EXECUTION.md](internal/DUAL_EXECUTION.md). |
 
-Precedence: `exclude` > `include` > auto-discovery. Identifiers are uppercase-normalized before matching.
+Precedence: `exclude` > `remote` > `include` > auto-discovery. Identifiers are uppercase-normalized before matching. `exclude` wins over `remote` so a defensive `exclude = ["SNOWFLAKE.*"]` still bites under a permissive `remote = ["*.*.*"]`.
 
 ## `[sync.lazy]`
 

@@ -7,8 +7,16 @@
 # optional kafka feature compiles librdkafka inline, and the Iceberg
 # crate pulls aws-sdk-glue + aws-sdk-s3 (rustls only, no openssl).
 #
-# Stage 2 ("runtime") is debian:bookworm-slim with just the certs the
-# binary needs to talk to Snowflake / S3 / catalog REST endpoints.
+# Stage 2 ("adbc-fetch") pulls the ADBC Snowflake native driver out
+# of the official Apache Arrow pip wheel and stages just the .so for
+# the runtime image. Required by the dual-execution router's Attach
+# strategy (community DuckDB Snowflake extension is a thin ADBC
+# wrapper). See `docs/internal/DUAL_EXECUTION.md` §12.6 for the
+# design; without this, hybrid Attach falls back to passthrough
+# silently (see §8 Fallback and failure modes).
+#
+# Stage 3 ("runtime") is debian:bookworm-slim with the certs the
+# binary needs and the ADBC driver staged into /usr/local/lib/.
 #
 # Build:
 #   docker build -t melt:dev .
@@ -18,9 +26,18 @@
 #
 # Build a slim, single-backend image:
 #   docker build -t melt-ducklake:dev --build-arg MELT_FEATURES=ducklake .
+#
+# Skip ADBC (smaller image, hybrid Attach falls back to passthrough):
+#   docker build -t melt:dev --build-arg HYBRID_ADBC=false .
 
 ARG RUST_VERSION=1.93
 ARG MELT_FEATURES=""
+# Pin the ADBC Snowflake driver. Keep this aligned with the version
+# the community DuckDB Snowflake extension was built against — the
+# extension dlopens this .so at runtime, mismatched ABIs will fail
+# at first ATTACH. Bump deliberately and test against staging.
+ARG ADBC_SNOWFLAKE_VERSION=1.6.0
+ARG HYBRID_ADBC=true
 
 # ─── Stage 1: builder ──────────────────────────────────────────────
 FROM rust:${RUST_VERSION}-bookworm AS builder
@@ -51,8 +68,43 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     fi \
  && cp target/release/melt /melt/melt-bin
 
-# ─── Stage 2: runtime ──────────────────────────────────────────────
+# ─── Stage 2: adbc-fetch ───────────────────────────────────────────
+#
+# Pulls the ADBC Snowflake native driver from the official Apache
+# Arrow pip wheel and stages it for the runtime image. Using the
+# wheel is the most reliable cross-platform path — Apache publishes
+# pre-built binaries for linux x86_64/arm64 and macOS arm64, and the
+# wheel includes ABI-compatibility metadata pip resolves correctly.
+#
+# We don't ship Python in the runtime image; this stage is purely a
+# one-shot "extract the .so" step. The adbc_driver_snowflake package
+# is ~30 MB; the resulting runtime addition is the .so itself.
+#
+# Skipping: build with `--build-arg HYBRID_ADBC=false` to omit
+# entirely. Hybrid queries will then fall back to Snowflake
+# passthrough at runtime (graceful — see §12.6 in the design doc).
+FROM python:3.12-slim AS adbc-fetch
+ARG ADBC_SNOWFLAKE_VERSION
+ARG HYBRID_ADBC
+RUN if [ "$HYBRID_ADBC" = "true" ]; then \
+        pip install --no-cache-dir \
+            "adbc-driver-snowflake==${ADBC_SNOWFLAKE_VERSION}" \
+            "adbc-driver-manager==${ADBC_SNOWFLAKE_VERSION}" \
+        && find /usr/local/lib/python3*/site-packages/adbc_driver_snowflake \
+            -name 'libadbc_driver_snowflake*.so*' \
+            -exec cp {} /libadbc_driver_snowflake.so \; \
+        && test -f /libadbc_driver_snowflake.so \
+            || (echo "FATAL: ADBC Snowflake .so not found in wheel" \
+                && find /usr/local/lib/python3*/site-packages/adbc_driver_snowflake -ls \
+                && exit 1); \
+    else \
+        echo "HYBRID_ADBC=false; staging empty placeholder" \
+        && touch /libadbc_driver_snowflake.so; \
+    fi
+
+# ─── Stage 3: runtime ──────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
+ARG HYBRID_ADBC
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates tini \
@@ -63,6 +115,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && chown -R melt:melt /melt /etc/melt
 
 COPY --from=builder /melt/melt-bin /usr/local/bin/melt
+
+# ADBC Snowflake driver. DuckDB's community Snowflake extension
+# dlopens this at first `ATTACH ... AS sf_link` — without it, the
+# pool's startup probe logs a WARN and hybrid Attach silently falls
+# back to Materialize / passthrough (see §12.6 in the design doc).
+# Empty file when `HYBRID_ADBC=false` (small noise tax on disk;
+# saves the trip through the ADBC build stage).
+COPY --from=adbc-fetch /libadbc_driver_snowflake.so /usr/local/lib/libadbc_driver_snowflake.so
+RUN chmod 0644 /usr/local/lib/libadbc_driver_snowflake.so \
+ && ldconfig 2>/dev/null || true
 
 USER melt
 WORKDIR /melt

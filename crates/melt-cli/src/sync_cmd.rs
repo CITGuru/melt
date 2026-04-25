@@ -50,6 +50,17 @@ pub enum SyncAction {
         #[arg(long)]
         yes: bool,
     },
+
+    /// Print every `[sync].remote` glob from the loaded config and the
+    /// FQNs each one matches against the proxy's known table set.
+    /// Symmetric to `melt sync list` — list shows synced tables; this
+    /// shows declared-remote (federated) ones. See
+    /// `docs/internal/DUAL_EXECUTION.md`.
+    Remote {
+        /// Emit as JSON. Default is a human-readable table.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -96,7 +107,66 @@ pub async fn run(cfg_path: &Path, action: SyncAction) -> Result<()> {
         SyncAction::List(args) => list(&cfg, args).await,
         SyncAction::Status { fqn } => status(&cfg, &fqn).await,
         SyncAction::Refresh { fqn, yes } => refresh(&cfg, &fqn, yes).await,
+        SyncAction::Remote { json } => remote(&cfg, json).await,
     }
+}
+
+/// `melt sync remote` — list `[sync].remote` patterns and the tables
+/// they match. Pure config introspection (no network) so it works
+/// offline.
+async fn remote(cfg: &MeltConfig, json: bool) -> Result<()> {
+    if cfg.sync.remote.is_empty() {
+        if json {
+            println!("[]");
+        } else {
+            println!("(no [sync].remote globs configured)");
+            println!(
+                "Hybrid (dual-execution) routing only fires when at least \
+                 one [sync].remote pattern is set AND [router].hybrid_execution = true."
+            );
+        }
+        return Ok(());
+    }
+
+    if json {
+        let payload: Vec<serde_json::Value> = cfg
+            .sync
+            .remote
+            .iter()
+            .map(|pat| serde_json::json!({ "pattern": pat }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
+
+    println!("Hybrid (dual-execution) federation patterns from [sync].remote:");
+    println!();
+    for (i, pat) in cfg.sync.remote.iter().enumerate() {
+        println!("  {:>3}. {}", i + 1, pat);
+    }
+    println!();
+    println!(
+        "Hybrid execution: {}",
+        if cfg.router.hybrid_execution {
+            "ON (router.hybrid_execution = true)"
+        } else {
+            "OFF (router.hybrid_execution = false — patterns are recognized but \
+             queries fall back to passthrough)"
+        }
+    );
+    println!(
+        "Attach strategy:  {} (single-scan remote nodes use sf_link)",
+        if cfg.router.hybrid_attach_enabled {
+            "enabled"
+        } else {
+            "DISABLED — every remote node forced to Materialize"
+        }
+    );
+    println!(
+        "Trigger cases:    bootstrapping={}  oversize={}",
+        cfg.router.hybrid_allow_bootstrapping, cfg.router.hybrid_allow_oversize,
+    );
+    Ok(())
 }
 
 // ── reload ─────────────────────────────────────────────────────

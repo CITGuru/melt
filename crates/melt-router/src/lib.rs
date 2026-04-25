@@ -4,6 +4,7 @@
 pub mod classify;
 pub mod decide;
 pub mod enforce;
+pub mod hybrid;
 pub mod parse;
 pub mod stats;
 pub mod translate;

@@ -86,7 +86,7 @@ impl StorageBackend for IcebergBackend {
         Ok(Box::pin(stream))
     }
 
-    async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<u64> {
+    async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<Vec<u64>> {
         self.catalog.estimate_scan_bytes(tables).await
     }
 

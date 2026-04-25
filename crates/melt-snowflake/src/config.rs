@@ -4,6 +4,111 @@ use std::time::Duration;
 use melt_core::{MeltError, PolicyConfig, Result};
 use serde::{Deserialize, Serialize};
 
+/// Build the DuckDB SQL that installs the community Snowflake
+/// extension and attaches it as `sf_link` for the dual-execution
+/// router's Attach strategy.
+///
+/// Returned SQL is appended to the iceberg/ducklake pool's per-
+/// connection setup. Failure modes are caught upstream by
+/// `tracing::warn!` in the pool — if the extension isn't available
+/// or the credentials are invalid, individual hybrid queries fall
+/// back to passthrough via the first-batch-error path.
+///
+/// Returns `None` when the operator hasn't configured credentials
+/// the extension can use (no PAT / private key — both required by
+/// the community extension). The plan calls this out as the
+/// `attach_loaded = false` case in §8.2.
+pub fn sf_link_attach_sql(cfg: &SnowflakeConfig) -> Option<String> {
+    // The community Snowflake extension supports PAT auth or RSA key
+    // pair auth, mirroring SnowflakeClient. Fail to None if neither
+    // is configured — the operator wants hybrid but doesn't have
+    // creds to set up sf_link.
+    let has_pat = !cfg.pat.is_empty() || !cfg.pat_file.is_empty();
+    let has_key = !cfg.private_key_file.is_empty() || !cfg.private_key.is_empty();
+    if !has_pat && !has_key {
+        return None;
+    }
+
+    // The community Snowflake extension requires a DATABASE field
+    // on the secret — it's the default DB for sessions opened
+    // through the attach. Use the configured database, falling back
+    // to the account literal so the secret still constructs even
+    // when no explicit database is set (the extension still allows
+    // qualified `<db>.<schema>.<table>` references regardless).
+    let database = if cfg.database.is_empty() {
+        // Snowflake always has SNOWFLAKE_SAMPLE_DATA / a default DB
+        // for any service user; SNOWFLAKE itself is read-only and
+        // present on every account, making it a safe fallback.
+        "SNOWFLAKE"
+    } else {
+        cfg.database.as_str()
+    };
+
+    let mut secret = String::from(
+        "CREATE OR REPLACE SECRET sf_link (\n\
+             TYPE SNOWFLAKE,\n\
+             ACCOUNT '",
+    );
+    secret.push_str(&escape_sql(&cfg.account));
+    secret.push_str("',\n    DATABASE '");
+    secret.push_str(&escape_sql(database));
+    secret.push_str("'");
+    if !cfg.user.is_empty() {
+        secret.push_str(",\n    USER '");
+        secret.push_str(&escape_sql(&cfg.user));
+        secret.push_str("'");
+    }
+    if !cfg.role.is_empty() {
+        secret.push_str(",\n    ROLE '");
+        secret.push_str(&escape_sql(&cfg.role));
+        secret.push_str("'");
+    }
+    if !cfg.warehouse.is_empty() {
+        secret.push_str(",\n    WAREHOUSE '");
+        secret.push_str(&escape_sql(&cfg.warehouse));
+        secret.push_str("'");
+    }
+    if !cfg.schema.is_empty() {
+        secret.push_str(",\n    SCHEMA '");
+        secret.push_str(&escape_sql(&cfg.schema));
+        secret.push_str("'");
+    }
+    if !cfg.private_key_file.is_empty() {
+        secret.push_str(",\n    PRIVATE_KEY_PATH '");
+        secret.push_str(&escape_sql(&cfg.private_key_file));
+        secret.push_str("'");
+    } else if !cfg.pat.is_empty() {
+        // PAT goes in the password slot per the extension's auth model.
+        secret.push_str(",\n    PASSWORD '");
+        secret.push_str(&escape_sql(&cfg.pat));
+        secret.push_str("'");
+    }
+    secret.push_str("\n);\n");
+
+    // The community Snowflake extension only supports read-only
+    // attaches today (writes go through the regular Snowflake
+    // driver). Hybrid execution is read-only by design (writes are
+    // passed through), so READ_ONLY is the right default — and
+    // omitting it makes the ATTACH fail outright with "Snowflake
+    // currently only supports read-only access".
+    let attach = format!(
+        "ATTACH '{database}' AS sf_link (TYPE SNOWFLAKE, SECRET sf_link, READ_ONLY);\n",
+        database = escape_sql(database),
+    );
+
+    let mut out = String::from(
+        "INSTALL snowflake FROM community;\n\
+         LOAD snowflake;\n",
+    );
+    out.push_str(&secret);
+    out.push_str(&attach);
+    Some(out)
+}
+
+fn escape_sql(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SnowflakeConfig {
     /// Snowflake account identifier — the value drivers send in the

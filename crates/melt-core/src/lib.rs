@@ -15,6 +15,7 @@
 pub mod backend;
 pub mod config;
 pub mod error;
+pub mod hybrid;
 pub mod policy;
 pub mod reload;
 pub mod route;
@@ -30,9 +31,13 @@ pub use config::{
     RouterConfig, S3Config,
 };
 pub use error::{CatalogError, MeltError, Result};
+pub use hybrid::{
+    AttachRewrite, BridgeDirection, BridgeStrategy, HybridPlan, NodeKind, Placement, PlanNode,
+    RemoteFragment, TableSourceRegistry,
+};
 pub use policy::{PolicyConfig, PolicyKind, PolicyMode, ProtectedTable};
 pub use reload::{ReloadError, ReloadResponse, SkippedField};
-pub use route::{LakeReason, PassthroughReason, Route, RouteKind};
+pub use route::{HybridReason, LakeReason, PassthroughReason, Route, RouteKind};
 pub use session::{SessionId, SessionInfo};
 pub use stream::RecordBatchStream;
 pub use sync::{

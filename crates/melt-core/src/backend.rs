@@ -19,10 +19,27 @@ pub trait StorageBackend: Send + Sync {
     /// before pagination.
     async fn execute(&self, sql: &str, ctx: &QueryContext) -> Result<RecordBatchStream>;
 
-    /// Estimate total bytes scanned for the listed tables. Used by
-    /// the router's size threshold; should be fast (target <10ms via
-    /// cached catalog stats).
-    async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<u64>;
+    /// Estimate bytes scanned for each of the listed tables, in the
+    /// same order as the input. Used by the router's size threshold
+    /// (legacy single-cap path) AND by the dual-execution router's
+    /// per-table oversize gate and per-fragment Materialize cap. Should
+    /// be fast (target <10 ms via cached catalog stats).
+    ///
+    /// Returns one `u64` per input table. If a backend genuinely cannot
+    /// distinguish per-table bytes (some catalog implementations only
+    /// expose a SUM), it MAY return a vec where the first element is
+    /// the sum and the rest are zeros — but per-table fidelity is
+    /// strongly preferred since the hybrid router relies on it for
+    /// the oversize trigger case (see
+    /// `docs/internal/DUAL_EXECUTION.md` §10.3).
+    async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<Vec<u64>>;
+
+    /// Sum-of-per-table convenience for the existing `lake_max_scan_bytes`
+    /// guardrail. Default impl sums [`Self::estimate_scan_bytes`] so
+    /// backends only have to override the per-table version.
+    async fn estimate_scan_bytes_total(&self, tables: &[TableRef]) -> Result<u64> {
+        Ok(self.estimate_scan_bytes(tables).await?.iter().sum())
+    }
 
     /// Batch existence check — avoids N serial round trips when a
     /// query references many tables. Returns one bool per input in

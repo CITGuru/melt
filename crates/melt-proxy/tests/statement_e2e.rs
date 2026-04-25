@@ -57,8 +57,8 @@ impl StorageBackend for MockBackend {
         Ok(Box::pin(stream))
     }
 
-    async fn estimate_scan_bytes(&self, _tables: &[TableRef]) -> Result<u64> {
-        Ok(1024)
+    async fn estimate_scan_bytes(&self, tables: &[TableRef]) -> Result<Vec<u64>> {
+        Ok(vec![1024; tables.len()])
     }
 
     async fn tables_exist(&self, tables: &[TableRef]) -> Result<Vec<bool>> {
@@ -107,6 +107,7 @@ fn build_state(backend: Arc<dyn StorageBackend>) -> ProxyState {
         results,
         request_timeout: limits.request_timeout,
         tls_cert: None,
+        parity: None,
     }
 }
 

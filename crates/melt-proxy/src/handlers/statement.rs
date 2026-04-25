@@ -106,6 +106,7 @@ async fn execute_inner(
 
     match result {
         Ok(Executed::Lake(lake)) => build_v2_lake_response(&state, &session, lake),
+        Ok(Executed::Hybrid(hy)) => build_v2_hybrid_response(&state, &session, hy),
         Ok(Executed::Passthrough(resp)) => forward_passthrough(resp),
         Err(e) => error_response(e),
     }
@@ -125,7 +126,61 @@ fn build_v2_lake_response(
         continuation,
         outcome: _,
     } = lake;
+    build_v2_local_response(
+        state,
+        session,
+        schema,
+        eager_batches,
+        continuation,
+        RouteKind::Lake,
+        None,
+    )
+}
 
+/// Shape a v2 response envelope from a Hybrid execution. Identical
+/// shape to [`build_v2_lake_response`] — the only difference is the
+/// `RouteKind::Hybrid` flag stored on the `ResultStore` entry and
+/// the `X-Melt-Route` / `X-Melt-Strategy` headers so test harnesses
+/// (e.g. `examples/python/hybrid_demo.py --execute`) can verify the
+/// routing decision end-to-end without scraping logs.
+fn build_v2_hybrid_response(
+    state: &ProxyState,
+    session: &Arc<SessionInfo>,
+    hy: crate::execution::HybridExecution,
+) -> Response {
+    let strategy = hy.plan.strategy_label().to_string();
+    let crate::execution::HybridExecution {
+        schema,
+        eager_batches,
+        continuation,
+        outcome: _,
+        plan: _,
+    } = hy;
+    build_v2_local_response(
+        state,
+        session,
+        schema,
+        eager_batches,
+        continuation,
+        RouteKind::Hybrid,
+        Some(strategy),
+    )
+}
+
+/// Shared envelope builder for any local-result-store-backed
+/// execution (Lake + Hybrid). Factored out so the only thing that
+/// changes between the two response types is the `RouteKind` flag
+/// the partition / cancel handlers branch on, and the optional
+/// hybrid-strategy header.
+fn build_v2_local_response(
+    state: &ProxyState,
+    session: &Arc<SessionInfo>,
+    schema: Option<arrow_schema::SchemaRef>,
+    eager_batches: Vec<arrow::record_batch::RecordBatch>,
+    continuation: Option<melt_core::RecordBatchStream>,
+    route_kind: RouteKind,
+    hybrid_strategy: Option<String>,
+) -> Response {
     // Defensive empty stream if continuation missing.
     let tail_stream: melt_core::RecordBatchStream = continuation.unwrap_or_else(|| {
         Box::pin(futures::stream::empty::<
@@ -133,12 +188,9 @@ fn build_v2_lake_response(
         >())
     });
 
-    let handle = state.results.insert(
-        tail_stream,
-        session.id.clone(),
-        RouteKind::Lake,
-        schema.clone(),
-    );
+    let handle = state
+        .results
+        .insert(tail_stream, session.id.clone(), route_kind, schema.clone());
 
     let first = eager_batches.first();
     let row_type = first
@@ -165,7 +217,28 @@ fn build_v2_lake_response(
         code: "090001".to_string(),
         message: "Statement executed successfully".to_string(),
     };
-    axum::Json(resp).into_response()
+
+    // Build the response with diagnostic routing headers. Drivers
+    // ignore unknown headers, so the Snowflake connector keeps
+    // working; harnesses that want to verify routing decisions (the
+    // Python variant runner's --execute mode) can parse them
+    // directly off the wire.
+    let route_label = match route_kind {
+        RouteKind::Lake => "lake",
+        RouteKind::Hybrid => "hybrid",
+        RouteKind::Snowflake => "snowflake",
+    };
+    let mut response = axum::Json(resp).into_response();
+    let headers = response.headers_mut();
+    if let Ok(v) = axum::http::HeaderValue::from_str(route_label) {
+        headers.insert("x-melt-route", v);
+    }
+    if let Some(strat) = hybrid_strategy {
+        if let Ok(v) = axum::http::HeaderValue::from_str(&strat) {
+            headers.insert("x-melt-strategy", v);
+        }
+    }
+    response
 }
 
 /// Replay upstream status + headers + body to the driver. Shared
@@ -189,6 +262,11 @@ fn forward_passthrough(resp: PassthroughResponse) -> Response {
             ) {
                 headers.append(n, v);
             }
+        }
+        // Diagnostic header so harnesses can tell the route at wire
+        // level. Drivers ignore unknown headers.
+        if let Ok(v) = axum::http::HeaderValue::from_str("snowflake") {
+            headers.insert("x-melt-route", v);
         }
     }
     match builder.body(axum::body::Body::from_stream(resp.body)) {

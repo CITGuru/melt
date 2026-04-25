@@ -2,6 +2,7 @@
 
 pub mod execution;
 pub mod handlers;
+pub mod hybrid_parity;
 pub mod response;
 pub mod result_store;
 pub mod server;

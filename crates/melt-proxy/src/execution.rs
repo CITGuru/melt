@@ -33,7 +33,9 @@ use std::time::Instant;
 use axum::body::Bytes;
 use axum::http::{HeaderMap, Method};
 use futures::StreamExt;
-use melt_core::{MeltError, QueryContext, RecordBatchStream, Result, Route, SessionInfo};
+use melt_core::{
+    HybridPlan, MeltError, QueryContext, RecordBatchStream, Result, Route, SessionInfo,
+};
 use melt_router::RouteOutcome;
 use melt_snowflake::PassthroughResponse;
 use metrics::{counter, histogram};
@@ -81,6 +83,11 @@ pub struct RouteInput<'a> {
 /// their wire-specific response envelope.
 pub enum Executed {
     Lake(LakeExecution),
+    /// Dual-execution result. Same shape as [`LakeExecution`] for
+    /// envelope-construction purposes — handlers can reuse their
+    /// `build_v*_lake_response` codepaths with minimal branching.
+    /// The carried [`HybridPlan`] is kept for EXPLAIN / observability.
+    Hybrid(HybridExecution),
     Passthrough(PassthroughResponse),
 }
 
@@ -104,6 +111,56 @@ pub struct LakeExecution {
     /// caller is expected to hand this to `ResultStore` and expose
     /// a continuation handle.
     pub continuation: Option<RecordBatchStream>,
+}
+
+pub struct HybridExecution {
+    pub outcome: RouteOutcome,
+    pub schema: Option<arrow_schema::SchemaRef>,
+    pub eager_batches: Vec<arrow::record_batch::RecordBatch>,
+    pub continuation: Option<RecordBatchStream>,
+    /// The hybrid plan that produced this result. Carried for
+    /// EXPLAIN-style logging and the `melt route` CLI output.
+    pub plan: Arc<HybridPlan>,
+}
+
+/// Categorised failure for the hybrid execution path. Used by [`run`]
+/// to decide whether to fall back to a Snowflake passthrough or
+/// surface the error to the caller. Mirrors OpenDuck's
+/// `HybridError::is_fallback_eligible` policy
+/// (`docs/internal/DUAL_EXECUTION.md` §9.5).
+#[derive(Debug)]
+pub enum HybridError {
+    /// Transport / connection failure to Snowflake (timeout,
+    /// DNS, TCP reset, 5xx). Eligible for fallback to passthrough.
+    Unavailable(MeltError),
+    /// Snowflake returned a SQL error on a Materialize fragment, or
+    /// the local DuckDB execution failed for a reason other than
+    /// transport. Surface to the client — masking these would hide
+    /// translation regressions.
+    Backend(MeltError),
+}
+
+impl HybridError {
+    /// `true` when the caller may safely fall back to a full
+    /// Snowflake passthrough.
+    pub fn is_fallback_eligible(&self) -> bool {
+        matches!(self, HybridError::Unavailable(_))
+    }
+
+    fn into_melt(self) -> MeltError {
+        match self {
+            HybridError::Unavailable(e) | HybridError::Backend(e) => e,
+        }
+    }
+}
+
+impl std::fmt::Display for HybridError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HybridError::Unavailable(e) => write!(f, "hybrid unavailable: {e}"),
+            HybridError::Backend(e) => write!(f, "hybrid backend: {e}"),
+        }
+    }
 }
 
 /// Run one SQL request end-to-end: acquire concurrency, route,
@@ -163,6 +220,34 @@ pub async fn run(input: RouteInput<'_>) -> Result<Executed> {
                 execute_passthrough(&input).await.map(Executed::Passthrough)
             }
         },
+        Route::Hybrid { plan, .. } => {
+            let plan = plan.clone();
+            match execute_hybrid(&input, outcome.clone(), plan).await {
+                Ok(hy) => Ok(Executed::Hybrid(hy)),
+                Err(e) if e.is_fallback_eligible() => {
+                    counter!(melt_metrics::PROXY_FALLBACKS).increment(1);
+                    counter!(
+                        melt_metrics::HYBRID_FALLBACKS,
+                        melt_metrics::LABEL_REASON => "unavailable",
+                    )
+                    .increment(1);
+                    tracing::warn!(
+                        error = %e,
+                        api = input.api,
+                        "hybrid path failed before first byte; falling back to Snowflake",
+                    );
+                    execute_passthrough(&input).await.map(Executed::Passthrough)
+                }
+                Err(e) => {
+                    counter!(
+                        melt_metrics::HYBRID_REMOTE_ERRORS,
+                        melt_metrics::LABEL_REASON => "backend",
+                    )
+                    .increment(1);
+                    Err(e.into_melt())
+                }
+            }
+        }
         Route::Snowflake { .. } => execute_passthrough(&input).await.map(Executed::Passthrough),
     };
     histogram!(
@@ -172,7 +257,9 @@ pub async fn run(input: RouteInput<'_>) -> Result<Executed> {
     .record(exec_start.elapsed().as_secs_f64());
 
     let (outcome_label, final_route_label) = match &result {
-        Ok(Executed::Lake(_)) => (melt_metrics::OUTCOME_OK, outcome.route.as_str()),
+        Ok(Executed::Lake(_)) | Ok(Executed::Hybrid(_)) => {
+            (melt_metrics::OUTCOME_OK, outcome.route.as_str())
+        }
         // Passthrough may be planned or fallback; PROXY_FALLBACKS metric distinguishes.
         Ok(Executed::Passthrough(_)) => (melt_metrics::OUTCOME_OK, "snowflake"),
         Err(_) => (melt_metrics::OUTCOME_ERR, outcome.route.as_str()),
@@ -283,4 +370,173 @@ async fn execute_passthrough(input: &RouteInput<'_>) -> Result<PassthroughRespon
             input.body.clone(),
         )
         .await
+}
+
+/// Hybrid (dual-execution) path. v1 implements the **Attach-only**
+/// shape end-to-end:
+/// - The plan's `local_sql` already references `sf_link.<db>.<schema>.<t>`
+///   for every Attach-strategy node. The community Snowflake extension
+///   (loaded into the pool by [`crate::server::ProxyState`] when
+///   `router.hybrid_execution` is on) handles predicate/projection
+///   pushdown automatically.
+/// - We delegate to the standard backend `execute()` — the same code
+///   path that powers Lake — and shape the result into a
+///   [`HybridExecution`] envelope.
+///
+/// **Materialize** support — fetching `RemoteFragment`s via
+/// `SnowflakeClient` as Arrow batches and bulk-loading them into
+/// DuckDB `TEMP TABLE`s via the Appender API — is a follow-up
+/// (`docs/internal/DUAL_EXECUTION.md` §9.3, the full three-sub-path
+/// runtime). For now any plan with non-empty `remote_fragments`
+/// returns [`HybridError::Unavailable`] which triggers the
+/// `is_fallback_eligible` fallback to passthrough. The
+/// `melt_hybrid_fallbacks_total{reason="materialize_unimpl"}` counter
+/// tracks how often this kicks in.
+async fn execute_hybrid(
+    input: &RouteInput<'_>,
+    outcome: RouteOutcome,
+    plan: Arc<HybridPlan>,
+) -> std::result::Result<HybridExecution, HybridError> {
+    let ctx = QueryContext::from_session(&input.session);
+
+    // Step 1 — Materialize: stage each RemoteFragment into a
+    // `TEMP TABLE __remote_i` on the backend. The fragment SQL is
+    // already in DuckDB-dialect form with `sf_link.<...>` aliases
+    // (the builder applied the translate + attach-alias rewrite),
+    // so the backend executes it directly through the attached
+    // Snowflake catalog. Snowflake does the join natively; DuckDB
+    // materializes the result into a temp table.
+    //
+    // v1 uses `CREATE TEMP TABLE AS` rather than a direct Arrow IPC
+    // fetch + Appender because it keeps the materialization entirely
+    // inside DuckDB (no separate HTTP path) and reuses the same
+    // sf_link extension that's already loaded for Attach. When/if
+    // the Arrow-IPC path lands (e.g. to side-step the extension
+    // being flaky), it slots in as a second branch here.
+    if !plan.remote_fragments.is_empty() {
+        let materialize_start = Instant::now();
+        for frag in &plan.remote_fragments {
+            let stage_sql = format!(
+                "CREATE TEMP TABLE {name} AS {body}",
+                name = frag.placeholder,
+                body = frag.snowflake_sql,
+            );
+            // Streaming execute returns a RecordBatchStream; for DDL
+            // we only need it to run to completion. Drain so the
+            // backend actually commits the work.
+            let mut stream = input
+                .state
+                .backend
+                .execute(&stage_sql, &ctx)
+                .await
+                .map_err(|e| {
+                    tracing::warn!(
+                        error = %e,
+                        api = input.api,
+                        placeholder = %frag.placeholder,
+                        fragment = %frag.snowflake_sql.chars().take(200).collect::<String>(),
+                        "hybrid: fragment staging failed",
+                    );
+                    HybridError::Unavailable(e)
+                })?;
+            while let Some(batch) = stream.as_mut().next().await {
+                batch.map_err(|e| {
+                    tracing::warn!(
+                        error = %e,
+                        api = input.api,
+                        placeholder = %frag.placeholder,
+                        "hybrid: fragment drain errored",
+                    );
+                    HybridError::Unavailable(e)
+                })?;
+            }
+        }
+        let elapsed = materialize_start.elapsed().as_secs_f64();
+        histogram!(melt_metrics::HYBRID_MATERIALIZE_LATENCY).record(elapsed);
+        tracing::info!(
+            api = input.api,
+            fragments = plan.remote_fragments.len(),
+            elapsed_seconds = elapsed,
+            "hybrid: fragments staged",
+        );
+    }
+
+    // Step 2 — Execute local_sql. It already references the staged
+    // `__remote_i` temp tables (Materialize) and `sf_link.<...>`
+    // aliases (Attach). DuckDB runs the final join / projection.
+    let translated = &plan.local_sql;
+
+    let mut stream = input
+        .state
+        .backend
+        .execute(translated, &ctx)
+        .await
+        .map_err(|e| {
+            tracing::warn!(
+                error = %e,
+                translated = %translated.chars().take(200).collect::<String>(),
+                api = input.api,
+                "hybrid attach: backend refused local_sql",
+            );
+            // Backend setup failures are likely the sf_link extension
+            // not being loaded — recoverable via passthrough.
+            HybridError::Unavailable(e)
+        })?;
+
+    let mut eager = Vec::new();
+    let mut schema: Option<arrow_schema::SchemaRef> = None;
+
+    match stream.as_mut().next().await {
+        Some(Ok(batch)) => {
+            schema = Some(batch.schema());
+            eager.push(batch);
+        }
+        Some(Err(e)) => {
+            tracing::warn!(error = %e, api = input.api, "hybrid: first batch failed");
+            return Err(HybridError::Unavailable(e));
+        }
+        None => {}
+    }
+
+    let continuation = if input.drain_full {
+        while let Some(batch) = stream.as_mut().next().await {
+            let batch = batch.map_err(|e| {
+                tracing::warn!(error = %e, api = input.api, "hybrid: mid-stream error");
+                // Mid-stream failures are past the fallback window —
+                // surface as Backend so the caller errors instead of
+                // silently passthrough'ing a partial result.
+                HybridError::Backend(e)
+            })?;
+            eager.push(batch);
+        }
+        None
+    } else {
+        Some(stream)
+    };
+
+    // Offer a parity sample if the harness is up. The sampler's
+    // `try_send` handles the probability roll + drop-on-full
+    // backpressure internally — this call is cheap and non-blocking.
+    // We only sample when we have eager batches to digest against;
+    // drain_full=false queries come back with the first batch only,
+    // which still lets us catch the common cell-level drift cases.
+    if let Some(parity) = &input.state.parity {
+        let row_count: u64 = eager.iter().map(|b| b.num_rows() as u64).sum();
+        let sample = crate::hybrid_parity::ParitySample {
+            query_id: uuid::Uuid::new_v4().to_string(),
+            original_sql: input.sql.clone(),
+            token: input.token.clone(),
+            hybrid_row_count: row_count,
+            hybrid_eager_batches: eager.clone(),
+        };
+        let _ = parity.sample(sample);
+    }
+
+    Ok(HybridExecution {
+        outcome,
+        schema,
+        eager_batches: eager,
+        continuation,
+        plan,
+    })
 }

@@ -11,14 +11,27 @@ use crate::config::DuckLakeConfig;
 /// `INSTALL ducklake; LOAD ducklake; ATTACH 'ducklake:postgres:...'; USE lake;`
 /// boilerplate so any handle the pool hands out — read or write —
 /// already sees the lake.
+///
+/// `extra_setup_sql` is appended to the per-connection setup. The
+/// proxy uses it to install + load the community Snowflake extension
+/// and `ATTACH` it as `sf_link` for the dual-execution router's
+/// Attach strategy. See `docs/internal/DUAL_EXECUTION.md` §8.2.
 pub struct DuckDBManager {
     setup_sql: String,
+    extra_setup_sql: Option<String>,
 }
 
 impl DuckDBManager {
     pub fn new(cfg: &DuckLakeConfig) -> Self {
+        Self::new_with_extra_sql(cfg, None)
+    }
+
+    pub fn new_with_extra_sql(cfg: &DuckLakeConfig, extra_setup_sql: Option<String>) -> Self {
         let setup_sql = build_setup_sql(cfg);
-        Self { setup_sql }
+        Self {
+            setup_sql,
+            extra_setup_sql,
+        }
     }
 
     fn open(&self) -> Result<Connection> {
@@ -28,6 +41,16 @@ impl DuckDBManager {
         // `cargo check` and offline tests don't require infrastructure.
         if let Err(e) = conn.execute_batch(&self.setup_sql) {
             tracing::warn!(error = %e, "DuckLake ATTACH failed — backend will return errors until the lake is reachable");
+        }
+        // Hybrid Attach is best-effort. See IcebergDuckDBManager::open.
+        if let Some(extra) = &self.extra_setup_sql {
+            if let Err(e) = conn.execute_batch(extra) {
+                tracing::warn!(
+                    error = %e,
+                    "hybrid Attach setup failed — sf_link won't be available; \
+                     hybrid queries will fall back to passthrough or Materialize"
+                );
+            }
         }
         Ok(conn)
     }
@@ -42,8 +65,12 @@ impl Manager for DuckDBManager {
     ) -> impl std::future::Future<Output = std::result::Result<SyncMutex<Connection>, MeltError>> + Send
     {
         let setup_sql = self.setup_sql.clone();
+        let extra_setup_sql = self.extra_setup_sql.clone();
         async move {
-            let manager = DuckDBManager { setup_sql };
+            let manager = DuckDBManager {
+                setup_sql,
+                extra_setup_sql,
+            };
             let conn = tokio::task::spawn_blocking(move || manager.open())
                 .await
                 .map_err(|e| MeltError::backend(format!("spawn_blocking: {e}")))??;
@@ -73,13 +100,24 @@ pub struct DuckLakePool {
 
 impl DuckLakePool {
     pub async fn new(cfg: DuckLakeConfig) -> Result<Self> {
-        let manager = DuckDBManager::new(&cfg);
+        Self::new_with_extra_sql(cfg, None).await
+    }
+
+    /// Constructor variant that runs `extra_setup_sql` on every new
+    /// connection (after the standard ducklake setup). Used by the
+    /// proxy to install the community Snowflake extension for hybrid
+    /// Attach. See `docs/internal/DUAL_EXECUTION.md` §8.2.
+    pub async fn new_with_extra_sql(
+        cfg: DuckLakeConfig,
+        extra_setup_sql: Option<String>,
+    ) -> Result<Self> {
+        let manager = DuckDBManager::new_with_extra_sql(&cfg, extra_setup_sql.clone());
         let readers = ReaderPool::builder(manager)
             .max_size(cfg.reader_pool_size.max(1))
             .build()
             .map_err(|e| MeltError::backend(format!("reader pool: {e}")))?;
 
-        let writer_manager = DuckDBManager::new(&cfg);
+        let writer_manager = DuckDBManager::new_with_extra_sql(&cfg, extra_setup_sql);
         let writer = tokio::task::block_in_place(|| writer_manager.open())?;
         Ok(Self {
             readers,
