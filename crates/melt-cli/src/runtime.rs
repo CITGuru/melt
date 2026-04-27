@@ -85,7 +85,20 @@ async fn run_ducklake(
     } else {
         None
     };
-    let pool = Arc::new(DuckLakePool::new_with_extra_sql(dl, hybrid_attach_sql).await?);
+    // Pair the attach SQL with the periodic refresh SQL +
+    // interval (default 1h, configurable via
+    // `router.hybrid_attach_refresh_interval`). The pool's recycle
+    // hook runs `DETACH IF EXISTS sf_link; ATTACH ...` on at most
+    // one connection per interval so the DuckDB Snowflake extension's
+    // per-table schema cache doesn't go indefinitely stale.
+    let hybrid_attach_refresh = hybrid_attach_sql.as_ref().and_then(|_| {
+        melt_snowflake::sf_link_refresh_sql(&cfg.snowflake)
+            .map(|sql| (sql, cfg.router.hybrid_attach_refresh_interval))
+    });
+    let pool = Arc::new(
+        DuckLakePool::new_with_extra_sql_and_refresh(dl, hybrid_attach_sql, hybrid_attach_refresh)
+            .await?,
+    );
     let readiness = build_readiness_ducklake(catalog.clone());
     let metrics = metrics_cfg(&cfg);
 
@@ -274,7 +287,14 @@ async fn run_iceberg(
     } else {
         None
     };
-    let pool = Arc::new(IcebergPool::new_with_extra_sql(&ib, hybrid_attach_sql).await?);
+    let hybrid_attach_refresh = hybrid_attach_sql.as_ref().and_then(|_| {
+        melt_snowflake::sf_link_refresh_sql(&cfg.snowflake)
+            .map(|sql| (sql, cfg.router.hybrid_attach_refresh_interval))
+    });
+    let pool = Arc::new(
+        IcebergPool::new_with_extra_sql_and_refresh(&ib, hybrid_attach_sql, hybrid_attach_refresh)
+            .await?,
+    );
     let readiness = melt_metrics::ReadinessProbe::always_ready();
     let metrics = metrics_cfg(&cfg);
 

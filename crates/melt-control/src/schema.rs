@@ -63,7 +63,6 @@ BEGIN
     -- earlier schemas pick up new variants. `view_dependency` was added
     -- when sync gained view decomposition; `remote` was added with the
     -- dual-execution router (operator-declared never-synced tables).
-    -- See `docs/internal/DUAL_EXECUTION.md`.
     ALTER TABLE melt_table_stats DROP CONSTRAINT IF EXISTS melt_table_stats_source_check;
     BEGIN
         ALTER TABLE melt_table_stats

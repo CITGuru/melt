@@ -108,6 +108,7 @@ fn build_state(backend: Arc<dyn StorageBackend>) -> ProxyState {
         request_timeout: limits.request_timeout,
         tls_cert: None,
         parity: None,
+        hybrid_cache: None,
     }
 }
 

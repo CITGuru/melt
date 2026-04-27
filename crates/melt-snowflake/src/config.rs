@@ -105,6 +105,34 @@ pub fn sf_link_attach_sql(cfg: &SnowflakeConfig) -> Option<String> {
     Some(out)
 }
 
+/// SQL that re-attaches `sf_link` to drop the DuckDB Snowflake
+/// extension's per-table schema cache. Returned by
+/// `IcebergPool` / `DuckLakePool` recycle hooks when
+/// `router.hybrid_attach_refresh_interval` has elapsed since the last
+/// refresh. The DETACH is `IF EXISTS` so first-checkout connections
+/// (where the previous setup may have failed) don't error.
+///
+/// Mirrors `sf_link_attach_sql`'s database-fallback rule: keep the
+/// fallback "SNOWFLAKE" so the ATTACH name is stable across refreshes
+/// even when no explicit database is set.
+pub fn sf_link_refresh_sql(cfg: &SnowflakeConfig) -> Option<String> {
+    let has_pat = !cfg.pat.is_empty() || !cfg.pat_file.is_empty();
+    let has_key = !cfg.private_key_file.is_empty() || !cfg.private_key.is_empty();
+    if !has_pat && !has_key {
+        return None;
+    }
+    let database = if cfg.database.is_empty() {
+        "SNOWFLAKE"
+    } else {
+        cfg.database.as_str()
+    };
+    Some(format!(
+        "DETACH IF EXISTS sf_link;\n\
+         ATTACH '{database}' AS sf_link (TYPE SNOWFLAKE, SECRET sf_link, READ_ONLY);\n",
+        database = escape_sql(database),
+    ))
+}
+
 fn escape_sql(s: &str) -> String {
     s.replace('\'', "''")
 }

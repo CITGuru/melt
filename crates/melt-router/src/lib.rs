@@ -4,10 +4,12 @@
 pub mod classify;
 pub mod decide;
 pub mod enforce;
+pub mod hints;
 pub mod hybrid;
 pub mod parse;
 pub mod stats;
 pub mod translate;
 
 pub use decide::{route, RouteOutcome};
+pub use hints::{parse_hints, Hints, RouteHint, StrategyHint};
 pub use stats::Cache;

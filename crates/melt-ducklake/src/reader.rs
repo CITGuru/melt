@@ -115,4 +115,40 @@ impl StorageBackend for DuckLakeBackend {
     fn kind(&self) -> BackendKind {
         BackendKind::DuckLake
     }
+
+    fn hybrid_attach_available(&self) -> bool {
+        self.pool.sf_link_available()
+    }
+
+    /// EXPLAIN ANALYZE companion to `execute`. See the parallel impl
+    /// in `crates/melt-iceberg/src/reader.rs` and the trait docs.
+    async fn analyze_query(&self, sql: &str, _ctx: &QueryContext) -> Result<String> {
+        let pool = self.pool.clone();
+        let analyze = format!("EXPLAIN ANALYZE {sql}");
+        tokio::task::spawn_blocking(move || -> Result<String> {
+            let mutex = futures::executor::block_on(pool.read())?;
+            let guard = mutex.lock();
+            let mut stmt = guard
+                .prepare(&analyze)
+                .map_err(|e| MeltError::backend(e.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let key: String = row.get(0).unwrap_or_default();
+                    let value: String = row.get(1).unwrap_or_default();
+                    Ok(format!("{key}\n{value}"))
+                })
+                .map_err(|e| MeltError::backend(e.to_string()))?;
+            let mut out = String::new();
+            for r in rows {
+                let line = r.map_err(|e| MeltError::backend(e.to_string()))?;
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&line);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| MeltError::backend(format!("spawn_blocking: {e}")))?
+    }
 }

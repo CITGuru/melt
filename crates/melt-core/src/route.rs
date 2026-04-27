@@ -18,8 +18,7 @@ pub enum Route {
     /// Snowflake-resident tables. The `plan` carries the annotated
     /// PlanNode tree, the Materialize fragments to fetch, the Attach
     /// rewrites that have already been baked into `plan.local_sql`,
-    /// and the rendered DuckDB-dialect `local_sql`. See
-    /// `docs/internal/DUAL_EXECUTION.md` for the design.
+    /// and the rendered DuckDB-dialect `local_sql`.
     Hybrid {
         plan: Arc<HybridPlan>,
         reason: HybridReason,
@@ -70,6 +69,9 @@ pub enum PassthroughReason {
         table: TableRef,
         reason: String,
     },
+    /// `/*+ melt_route(snowflake) */` comment hint forced
+    /// passthrough. See `crates/melt-router/src/hints.rs`.
+    OperatorHint,
 }
 
 /// Why the router emitted `Route::Hybrid`. Used by metrics
@@ -159,6 +161,7 @@ impl PassthroughReason {
             PassthroughReason::NotInAllowList { .. } => "not_in_allowlist",
             PassthroughReason::BootstrappingTable { .. } => "bootstrapping_table",
             PassthroughReason::TableQuarantined { .. } => "table_quarantined",
+            PassthroughReason::OperatorHint => "operator_hint",
         }
     }
 }

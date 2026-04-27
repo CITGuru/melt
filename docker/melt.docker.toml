@@ -50,17 +50,20 @@ lake_max_scan_bytes      = "100GB"
 table_exists_cache_ttl   = "5m"
 estimate_bytes_cache_ttl = "1m"
 
-# Dual-execution router (hybrid) — see docs/internal/DUAL_EXECUTION.md.
-# Off by default; the docker image bakes the ADBC Snowflake driver
-# (see Dockerfile stage 2), so flipping to `true` is sufficient to
-# enable the Attach + Materialize bridges. Pair with `[sync].remote`
-# patterns below to declare which tables are remote-only.
+# Dual-execution router (hybrid). Off by default; the docker image
+# bakes the ADBC Snowflake driver (see Dockerfile stage 2), so
+# flipping to `true` is sufficient to enable the Attach + Materialize
+# bridges. Pair with `[sync].remote` patterns below to declare which
+# tables are remote-only.
 hybrid_execution             = false
 # hybrid_attach_enabled      = true
 # hybrid_max_remote_scan_bytes = "5GB"
 # hybrid_max_attach_scan_bytes = "10GB"
 # hybrid_parity_sample_rate  = 0.0
 # hybrid_profile_attach_queries = false
+# hybrid_attach_refresh_interval = "1h"
+# hybrid_fragment_cache_ttl         = "0s"
+# hybrid_fragment_cache_max_entries = 256
 
 [sync]
 auto_discover = true

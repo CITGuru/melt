@@ -113,8 +113,21 @@ pub fn build_hybrid_plan(
     let mut remote_fragments: Vec<RemoteFragment> = Vec::new();
     let mut attach_rewrites: Vec<AttachRewrite> = Vec::new();
 
-    collapse_all_remote_subqueries(ast, session, registry, &mut remote_fragments);
-    try_collapse_top_level_statements(ast, session, registry, &mut remote_fragments);
+    // When the operator (or the pool's startup probe) has disabled
+    // Attach, the collapse pass also accepts single-scan all-remote
+    // queries. Result: every Remote scan ends up in a fragment, the
+    // attach-rewrite pass below produces zero rewrites, and the plan
+    // is Materialize-only. Keeps the builder a single algorithm
+    // (parameterised by the floor) rather than two divergent paths.
+    let collapse_floor = if cfg.hybrid_attach_enabled { 2 } else { 1 };
+    collapse_all_remote_subqueries(ast, session, registry, &mut remote_fragments, collapse_floor);
+    try_collapse_top_level_statements(
+        ast,
+        session,
+        registry,
+        &mut remote_fragments,
+        collapse_floor,
+    );
     if let Err(e) = rewrite_attach_in_place(ast, registry, session, &mut attach_rewrites, cfg) {
         return BuildOutcome::Bail(format!("attach_rewrite: {e}"));
     }
@@ -197,15 +210,25 @@ fn build_explain_tree(
 /// each one whose every table reference is Remote, render it as a
 /// Materialize fragment and replace its body with `SELECT * FROM
 /// __remote_N`.
+///
+/// `min_scans` is the per-subquery scan-count threshold — 2 in the
+/// default mixed-strategy mode (single-scan subqueries are left for
+/// the Attach-rewrite pass), or 1 when the runtime has disabled
+/// Attach (`hybrid_attach_enabled = false` or the pool reports
+/// `sf_link_available() == false`). With `min_scans = 1` every
+/// all-remote subquery becomes a Materialize fragment, producing a
+/// pure-Materialize plan that doesn't need `sf_link.*` aliases at
+/// execute-time.
 fn collapse_all_remote_subqueries(
     ast: &mut [Statement],
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
     for stmt in ast.iter_mut() {
         if let Statement::Query(q) = stmt {
-            collapse_in_query(q, session, registry, fragments);
+            collapse_in_query(q, session, registry, fragments, min_scans);
         }
     }
 }
@@ -215,6 +238,7 @@ fn collapse_in_query(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
     // Top-down: visit children first, then check the current Query.
     // Top-down means we collapse the OUTERMOST all-remote subquery,
@@ -226,22 +250,26 @@ fn collapse_in_query(
     // SELECT-list expressions for `Expr::Subquery` and
     // `Expr::InSubquery`.
     if let SetExpr::Select(select) = q.body.as_mut() {
-        // Walk every expression in the SELECT for sub-Queries.
         for item in select.projection.iter_mut() {
-            walk_select_item_for_subqueries(item, session, registry, fragments);
+            walk_select_item_for_subqueries(item, session, registry, fragments, min_scans);
         }
         if let Some(where_expr) = select.selection.as_mut() {
-            walk_expr_for_subqueries(where_expr, session, registry, fragments);
+            walk_expr_for_subqueries(where_expr, session, registry, fragments, min_scans);
         }
         for join_or_table in select.from.iter_mut() {
-            walk_table_with_joins_for_subqueries(join_or_table, session, registry, fragments);
+            walk_table_with_joins_for_subqueries(
+                join_or_table,
+                session,
+                registry,
+                fragments,
+                min_scans,
+            );
         }
     }
 
-    // CTEs (`q.with`): each CTE body is its own Query.
     if let Some(with) = q.with.as_mut() {
         for cte in with.cte_tables.iter_mut() {
-            collapse_in_query(cte.query.as_mut(), session, registry, fragments);
+            collapse_in_query(cte.query.as_mut(), session, registry, fragments, min_scans);
         }
     }
 }
@@ -251,11 +279,12 @@ fn walk_select_item_for_subqueries(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
     use sqlparser::ast::SelectItem;
     match item {
         SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => {
-            walk_expr_for_subqueries(e, session, registry, fragments);
+            walk_expr_for_subqueries(e, session, registry, fragments, min_scans);
         }
         _ => {}
     }
@@ -266,10 +295,17 @@ fn walk_table_with_joins_for_subqueries(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
-    walk_table_factor_for_subqueries(&mut twj.relation, session, registry, fragments);
+    walk_table_factor_for_subqueries(&mut twj.relation, session, registry, fragments, min_scans);
     for join in twj.joins.iter_mut() {
-        walk_table_factor_for_subqueries(&mut join.relation, session, registry, fragments);
+        walk_table_factor_for_subqueries(
+            &mut join.relation,
+            session,
+            registry,
+            fragments,
+            min_scans,
+        );
     }
 }
 
@@ -278,14 +314,13 @@ fn walk_table_factor_for_subqueries(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
     if let TableFactor::Derived { subquery, .. } = tf {
-        // Derived tables (FROM (SELECT ...) AS x) — try to collapse
-        // before recursing.
-        if try_collapse_query(subquery.as_mut(), session, registry, fragments) {
+        if try_collapse_query(subquery.as_mut(), session, registry, fragments, min_scans) {
             return;
         }
-        collapse_in_query(subquery.as_mut(), session, registry, fragments);
+        collapse_in_query(subquery.as_mut(), session, registry, fragments, min_scans);
     }
 }
 
@@ -294,13 +329,12 @@ fn walk_expr_for_subqueries(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
     match expr {
         Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
-            // Try to collapse this whole subquery first; if it's not
-            // all-remote, recurse into its insides.
-            if !try_collapse_query(q.as_mut(), session, registry, fragments) {
-                collapse_in_query(q.as_mut(), session, registry, fragments);
+            if !try_collapse_query(q.as_mut(), session, registry, fragments, min_scans) {
+                collapse_in_query(q.as_mut(), session, registry, fragments, min_scans);
             }
         }
         Expr::InSubquery {
@@ -308,21 +342,23 @@ fn walk_expr_for_subqueries(
             expr: inner,
             ..
         } => {
-            walk_expr_for_subqueries(inner, session, registry, fragments);
-            if !try_collapse_query(subquery.as_mut(), session, registry, fragments) {
-                collapse_in_query(subquery.as_mut(), session, registry, fragments);
+            walk_expr_for_subqueries(inner, session, registry, fragments, min_scans);
+            if !try_collapse_query(subquery.as_mut(), session, registry, fragments, min_scans) {
+                collapse_in_query(subquery.as_mut(), session, registry, fragments, min_scans);
             }
         }
         Expr::BinaryOp { left, right, .. } => {
-            walk_expr_for_subqueries(left, session, registry, fragments);
-            walk_expr_for_subqueries(right, session, registry, fragments);
+            walk_expr_for_subqueries(left, session, registry, fragments, min_scans);
+            walk_expr_for_subqueries(right, session, registry, fragments, min_scans);
         }
-        Expr::UnaryOp { expr: e, .. } => walk_expr_for_subqueries(e, session, registry, fragments),
-        Expr::Nested(e) => walk_expr_for_subqueries(e, session, registry, fragments),
-        Expr::Cast { expr: e, .. } => walk_expr_for_subqueries(e, session, registry, fragments),
+        Expr::UnaryOp { expr: e, .. } => {
+            walk_expr_for_subqueries(e, session, registry, fragments, min_scans)
+        }
+        Expr::Nested(e) => walk_expr_for_subqueries(e, session, registry, fragments, min_scans),
+        Expr::Cast { expr: e, .. } => {
+            walk_expr_for_subqueries(e, session, registry, fragments, min_scans)
+        }
         Expr::Function(f) => {
-            // Function arguments may contain subqueries (e.g. agg over
-            // a derived table).
             use sqlparser::ast::{FunctionArg, FunctionArgExpr, FunctionArguments};
             if let FunctionArguments::List(args) = &mut f.args {
                 for a in args.args.iter_mut() {
@@ -332,18 +368,12 @@ fn walk_expr_for_subqueries(
                         ..
                     } = a
                     {
-                        walk_expr_for_subqueries(e, session, registry, fragments);
+                        walk_expr_for_subqueries(e, session, registry, fragments, min_scans);
                     }
                 }
             }
         }
-        _ => {
-            // Other Expr variants either don't carry subqueries or
-            // are too rare to special-case in v1 — they fall through
-            // and won't be Materialize-collapsed (the outer Attach
-            // pass will still rewrite any Remote ObjectName they
-            // contain).
-        }
+        _ => {}
     }
 }
 
@@ -371,9 +401,10 @@ fn try_collapse_query(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) -> bool {
     let scanned = relations_in_query(q, session);
-    if scanned.len() < 2 {
+    if scanned.len() < min_scans {
         return false;
     }
     if !scanned.iter().all(|t| registry.is_remote(t)) {
@@ -425,16 +456,11 @@ fn try_collapse_top_level_statements(
     session: &SessionInfo,
     registry: &TableSourceRegistry,
     fragments: &mut Vec<RemoteFragment>,
+    min_scans: usize,
 ) {
     for stmt in ast.iter_mut() {
         if let Statement::Query(q) = stmt {
-            // After the subquery-collapse pass, `q`'s body may already
-            // reference `__remote_N` placeholders. `relations_in_query`
-            // sees those as 1-part names that don't resolve to
-            // `TableRef`s in the registry — so if we already collapsed
-            // the interesting bits, `scanned` here is sparse and
-            // try_collapse is a no-op.
-            try_collapse_query(q, session, registry, fragments);
+            try_collapse_query(q, session, registry, fragments, min_scans);
         }
     }
 }

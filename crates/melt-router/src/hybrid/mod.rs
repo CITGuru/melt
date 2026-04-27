@@ -7,8 +7,6 @@
 //! and emits the final DuckDB-dialect `local_sql` with `sf_link.…`
 //! aliases and `__remote_i` placeholders in place.
 //!
-//! See `docs/internal/DUAL_EXECUTION.md` for the design.
-//!
 //! ## v1 plan-builder approach
 //!
 //! Rather than constructing a full physical plan tree (the OpenDuck

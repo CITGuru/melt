@@ -16,7 +16,7 @@ pub mod views;
 
 pub use auth::ServiceToken;
 pub use client::{PassthroughResponse, SnowflakeClient, ViewDef};
-pub use config::{sf_link_attach_sql, SnowflakeConfig};
+pub use config::{sf_link_attach_sql, sf_link_refresh_sql, SnowflakeConfig};
 pub use errors::{snowflake_code, SnowflakeApiError};
 pub use melt_core::ObjectKind;
 pub use policy::list_policy_protected_tables_query;

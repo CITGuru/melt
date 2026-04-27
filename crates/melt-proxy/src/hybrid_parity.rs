@@ -7,8 +7,6 @@
 //! (`melt_hybrid_parity_mismatches_total`) and a `WARN` log carrying
 //! enough detail to reproduce manually.
 //!
-//! See `docs/internal/DUAL_EXECUTION.md` §12 for the design.
-//!
 //! ## Architecture
 //!
 //! - The proxy's hybrid execute path may opportunistically push a
@@ -23,20 +21,24 @@
 //!   deployments naturally get fewer samples per query, which is
 //!   the right behaviour.
 //!
-//! ## v1 scope
+//! ## What's implemented
 //!
-//! v1 ships the wiring + the channel + the digest comparison. The
-//! actual Snowflake replay needs to fetch results in a parseable
-//! format that matches what the hybrid path produced — Snowflake's
-//! `/api/v2/statements` returns JSON, and matching it cell-for-cell
-//! with DuckDB's Arrow output requires careful canonicalization
-//! (decimal precision, timestamp TZ, NULL ordering — see
-//! `docs/internal/DUAL_EXECUTION.md` §9). v1 implements:
-//!   - The harness type + bounded channel + drop counter.
-//!   - The `should_sample(rate)` helper.
-//!   - Row-count-only comparison.
-//! The full digest-based parity check is a follow-up; structure is
-//! ready so the upgrade is purely the digest implementation.
+//! - `ParityHarness` + bounded `mpsc::Sender` + drop counter.
+//! - `should_sample(rate)` helper (pseudorandom Bernoulli trial).
+//! - **Row-count comparison** as the cheap first gate.
+//! - **Per-row XOR-of-SHA256 digest** when the sample carries eager
+//!   batches, comparing the canonicalised hybrid Arrow rendering
+//!   against the canonicalised Snowflake JSON rendering. See
+//!   `digest_record_batches` and `digest_snowflake_rows` for the
+//!   canonicalisation rules (decimal trailing-zero strip, timestamp
+//!   UTC normalisation, NULL → `\u{0}` sentinel). Order-invariant by
+//!   construction (XOR fold).
+//!
+//! Snowflake's `/api/v2/statements` returns JSON (not Arrow), so the
+//! cell-by-cell match requires the canonicalisation step — the type
+//! systems do not align by default. Known drift surfaces handled by
+//! the canonicalisation: decimal trailing zeros, timestamp TZ
+//! normalisation, NULL ordering, semi-structured (VARIANT) access.
 
 use std::sync::Arc;
 

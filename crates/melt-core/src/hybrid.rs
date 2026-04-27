@@ -10,8 +10,6 @@
 //! `insert_bridges`, `choose_strategy`, the AST→PlanNode builder, and the
 //! Snowflake-dialect emitter — live in `melt-router::hybrid` because they
 //! depend on `sqlparser`. This crate stays sqlparser-free.
-//!
-//! See `docs/internal/DUAL_EXECUTION.md` for the design.
 
 use std::collections::HashSet;
 use std::fmt;

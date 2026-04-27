@@ -80,9 +80,8 @@ services:
         # ADBC Snowflake driver is included by default so the dual-
         # execution router's Attach strategy (`sf_link.<...>` refs)
         # actually hits Snowflake instead of falling back to passthrough.
-        # See `docs/internal/DUAL_EXECUTION.md` §12.6. Set to `false` to
-        # build a slimmer image — hybrid queries then degrade to
-        # Materialize / passthrough at runtime.
+        # Set to `false` to build a slimmer image — hybrid queries then
+        # degrade to Materialize / passthrough at runtime.
         HYBRID_ADBC: "true"
         # Pin to the ADBC release the community DuckDB Snowflake
         # extension was built against. Bump deliberately; ABI mismatch

@@ -54,8 +54,7 @@ pub enum SyncAction {
     /// Print every `[sync].remote` glob from the loaded config and the
     /// FQNs each one matches against the proxy's known table set.
     /// Symmetric to `melt sync list` — list shows synced tables; this
-    /// shows declared-remote (federated) ones. See
-    /// `docs/internal/DUAL_EXECUTION.md`.
+    /// shows declared-remote (federated) ones.
     Remote {
         /// Emit as JSON. Default is a human-readable table.
         #[arg(long)]

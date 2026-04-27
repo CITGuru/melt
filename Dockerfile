@@ -11,9 +11,10 @@
 # of the official Apache Arrow pip wheel and stages just the .so for
 # the runtime image. Required by the dual-execution router's Attach
 # strategy (community DuckDB Snowflake extension is a thin ADBC
-# wrapper). See `docs/internal/DUAL_EXECUTION.md` §12.6 for the
-# design; without this, hybrid Attach falls back to passthrough
-# silently (see §8 Fallback and failure modes).
+# wrapper that dlopens this .so at first ATTACH). Without it,
+# hybrid Attach falls back to passthrough silently — the pool
+# logs a WARN at startup and the `melt_hybrid_attach_unavailable_total`
+# counter increments per-query.
 #
 # Stage 3 ("runtime") is debian:bookworm-slim with the certs the
 # binary needs and the ADBC driver staged into /usr/local/lib/.
@@ -82,7 +83,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 # Skipping: build with `--build-arg HYBRID_ADBC=false` to omit
 # entirely. Hybrid queries will then fall back to Snowflake
-# passthrough at runtime (graceful — see §12.6 in the design doc).
+# passthrough at runtime (graceful — pool warns at startup and the
+# `melt_hybrid_attach_unavailable_total` counter increments).
 FROM python:3.12-slim AS adbc-fetch
 ARG ADBC_SNOWFLAKE_VERSION
 ARG HYBRID_ADBC
@@ -119,7 +121,7 @@ COPY --from=builder /melt/melt-bin /usr/local/bin/melt
 # ADBC Snowflake driver. DuckDB's community Snowflake extension
 # dlopens this at first `ATTACH ... AS sf_link` — without it, the
 # pool's startup probe logs a WARN and hybrid Attach silently falls
-# back to Materialize / passthrough (see §12.6 in the design doc).
+# back to Materialize / passthrough.
 # Empty file when `HYBRID_ADBC=false` (small noise tax on disk;
 # saves the trip through the ADBC build stage).
 COPY --from=adbc-fetch /libadbc_driver_snowflake.so /usr/local/lib/libadbc_driver_snowflake.so

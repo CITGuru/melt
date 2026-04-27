@@ -102,27 +102,26 @@ estimate_bytes_cache_ttl = "1m"
 # Materialize (SnowflakeClient + Arrow IPC + TEMP TABLE) bridges,
 # selected per RemoteSql node.
 #
-# See `docs/internal/DUAL_EXECUTION.md` and the operational guide
-# (§11) before flipping this on in production.
+# Off by default. Pair with `[sync].remote` patterns to opt in.
 hybrid_execution             = false
 
 # Materialize-strategy caps (multi-scan RemoteSql nodes).
 # Sum + per-fragment bytes the Materialize path may pull from
 # Snowflake. Above the sum, the whole query collapses to passthrough
-# with `AboveThreshold` (see §10.2).
+# with `AboveThreshold`.
 hybrid_max_remote_scan_bytes = "5GiB"
 hybrid_max_fragment_bytes    = "2GiB"
 
 # Attach-strategy caps (single-scan RemoteSql nodes). Set
 # `hybrid_attach_enabled = false` as a kill switch when the
 # community extension misbehaves; the pool also flips it off
-# automatically when the extension fails to load (§8.2 / §10.6).
+# automatically when the extension fails to load.
 hybrid_attach_enabled        = true
 hybrid_max_attach_scan_bytes = "10GiB"
 
 # Trigger-case toggles. Cases 2 (bootstrapping) and 3 (single-table
-# oversize) are off in v1 — enable per the rollout plan in §11.4
-# of the design doc once Phase 4 lands.
+# oversize) are off by default — flip on per-tenant once you've
+# confirmed parity-sampler signal is clean.
 hybrid_allow_bootstrapping   = false
 hybrid_allow_oversize        = false
 
@@ -132,10 +131,24 @@ hybrid_allow_oversize        = false
 # rollout to accumulate signal faster.
 hybrid_parity_sample_rate    = 0.01
 
-# Diagnostic: tap DuckDB's profiler after Attach queries and log the
-# `snowflake_scan` operator's emitted SQL. Off by default — profiler
-# overhead is non-trivial. Enable per-tenant during debugging.
+# Diagnostic: tap DuckDB's EXPLAIN ANALYZE after Attach queries and log
+# any `snowflake_scan` / `query_string` lines from the rendered plan
+# (i.e. the actual SQL DuckDB sent upstream). Off by default — EXPLAIN
+# ANALYZE re-executes the query (~2x latency). Enable per-tenant during
+# debugging.
 hybrid_profile_attach_queries = false
+
+# Periodic refresh of the DuckDB Snowflake extension's per-table schema
+# cache. Lazy: at most one connection per interval pays the
+# `DETACH IF EXISTS sf_link; ATTACH ...` cost (CAS-guarded). Bounds
+# upstream-schema-evolution staleness without a proxy restart. 0 = off.
+hybrid_attach_refresh_interval = "1h"
+
+# Statement-level result cache. TTL > 0 enables; identical hybrid
+# queries within the window skip Snowflake entirely. Per-table
+# invalidation cascades from sync writes.
+hybrid_fragment_cache_ttl         = "0s"
+hybrid_fragment_cache_max_entries = 256
 
 [metrics]
 listen     = "0.0.0.0:9090"
@@ -174,9 +187,9 @@ exclude = [
 # them are routed through the dual-execution router (when
 # `[router].hybrid_execution = true` below). The lake portion runs
 # locally; the remote portion either streams via the attached
-# Snowflake catalog (single-scan nodes → Attach) or is materialized
-# into a TEMP TABLE via Arrow IPC (multi-scan subtrees →
-# Materialize). See `docs/internal/DUAL_EXECUTION.md`.
+# Snowflake catalog (single-scan nodes → Attach) or is staged as a
+# TEMP TABLE built from a Snowflake-side fragment query (multi-scan
+# subtrees → Materialize).
 #
 # Precedence: `exclude` > `remote` > `include`. A defensive
 # `exclude = ["SNOWFLAKE.*"]` still bites under a permissive

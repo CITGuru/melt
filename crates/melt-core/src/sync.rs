@@ -237,8 +237,7 @@ pub struct SyncConfig {
     /// Glob patterns the dual-execution router should treat as
     /// always-remote — never synced, always read from Snowflake via
     /// the hybrid bridges (Attach for single-scan, Materialize for
-    /// collapsed multi-scan subtrees). See
-    /// `docs/internal/DUAL_EXECUTION.md`.
+    /// collapsed multi-scan subtrees).
     ///
     /// Precedence: `exclude` > `remote` > `include` > not_matched.
     /// Exclude wins over remote so operators can still block

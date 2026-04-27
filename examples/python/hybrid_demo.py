@@ -222,10 +222,10 @@ _RE_ROUTE = re.compile(r"^route:\s*(\S+)", re.MULTILINE)
 _RE_REASON = re.compile(r"^reason:\s*(.+)$", re.MULTILINE)
 _RE_STRATEGY = re.compile(r"^strategy:\s*(\S+)", re.MULTILINE)
 
-# After Phase 1, `melt route` for hybrid emits a plan tree where each
-# REMOTE node is annotated [REMOTE,attach] or [REMOTE,materialize].
-# We count those tokens to derive attach/materialize counts. This
-# format is documented in docs/DUAL_EXECUTION.md §10.3.
+# `melt route` for a hybrid plan emits an EXPLAIN-style tree where
+# each REMOTE node is annotated `[REMOTE,attach]` or
+# `[REMOTE,materialize]`. We count those tokens to derive the per-
+# strategy node counts that drive variant assertions.
 _RE_REMOTE_NODE = re.compile(r"\[REMOTE,(attach|materialize)\]")
 
 

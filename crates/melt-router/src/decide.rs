@@ -103,6 +103,15 @@ async fn decide_inner(
     matcher: Option<&SyncTableMatcher>,
     discovery: Option<&Arc<dyn DiscoveryCatalog>>,
 ) -> RouteOutcome {
+    // Hint pre-pass. Comment hints (`/*+ melt_route(snowflake) */` &
+    // friends) override the normal decision tree. We parse before
+    // anything else so an explicit `melt_route(snowflake)` skips the
+    // whole evaluator. See `crates/melt-router/src/hints.rs`.
+    let hints = crate::hints::parse_hints(sql);
+    if matches!(hints.route, Some(crate::hints::RouteHint::Snowflake)) {
+        return RouteOutcome::passthrough(PassthroughReason::OperatorHint);
+    }
+
     let mut ast = match parse::parse(sql) {
         Ok(ast) => ast,
         Err(_) => return RouteOutcome::passthrough(PassthroughReason::ParseFailed),
@@ -119,7 +128,8 @@ async fn decide_inner(
 
     // No tables touched → cheap pure expression. Send to lake (DuckDB
     // can compute it locally) or to Snowflake — both are correct, we
-    // pick lake to avoid the network hop.
+    // pick lake to avoid the network hop. Honor an explicit hint
+    // either way.
     if tables.is_empty() {
         return finish_lake(&mut ast, 0).await;
     }
@@ -151,6 +161,15 @@ async fn decide_inner(
 
     let mut remote_tables = remote_tables;
     let mut non_remote_tables = non_remote_tables;
+    // `/*+ melt_route(lake) */` — operator override that says "I know
+    // this query, run it locally; ignore `[sync].remote` matches and
+    // bootstrapping/oversize promotions." Move every Remote table
+    // back to the local pool. The lake decision below will then
+    // either succeed or surface the actual missing-table error
+    // instead of falling back to passthrough silently.
+    if matches!(hints.route, Some(crate::hints::RouteHint::Lake)) {
+        non_remote_tables.extend(remote_tables.drain(..));
+    }
     let mut promotion_reasons: Vec<HybridReason> = Vec::new();
     if !remote_tables.is_empty() {
         promotion_reasons.push(HybridReason::RemoteByConfig);
@@ -275,14 +294,55 @@ async fn decide_inner(
         // returns either a plan, a Bail (fall through to passthrough),
         // or NotHybrid (defensive — shouldn't happen because we
         // already know remote_tables is non-empty).
+        //
+        // Runtime gate: if the backend's pool reports `sf_link` is
+        // unavailable (extension load or ATTACH failed), force the
+        // builder into all-Materialize mode by overriding
+        // `hybrid_attach_enabled = false` on a local cfg copy. The
+        // public `RouterConfig` is unchanged. We also bump the
+        // `melt_hybrid_attach_unavailable_total` counter so the
+        // degradation surfaces on dashboards instead of being a
+        // silent log line at startup.
+        //
+        // Hint gate: `/*+ melt_strategy(materialize) */` forces the
+        // same all-Materialize mode (operator opt-in to the safer
+        // path); `melt_strategy(attach)` is a no-op here because
+        // Attach is already the default for single-scan nodes — the
+        // strategy selector decides per-node.
         let registry = TableSourceRegistry::from_iter(remote_tables.iter().cloned());
+        let attach_runtime_available = backend.hybrid_attach_available();
+        let force_materialize_by_hint =
+            matches!(hints.strategy, Some(crate::hints::StrategyHint::Materialize));
+        let effective_cfg: RouterConfig;
+        let cfg_for_builder: &RouterConfig = if cfg.hybrid_attach_enabled
+            && !attach_runtime_available
+        {
+            counter!(melt_metrics::HYBRID_ATTACH_UNAVAILABLE).increment(1);
+            tracing::warn!(
+                "hybrid: sf_link not available at runtime; forcing all-Materialize plan"
+            );
+            effective_cfg = RouterConfig {
+                hybrid_attach_enabled: false,
+                ..cfg.clone()
+            };
+            &effective_cfg
+        } else if force_materialize_by_hint {
+            tracing::info!("hybrid: forcing all-Materialize via /*+ melt_strategy(materialize) */");
+            effective_cfg = RouterConfig {
+                hybrid_attach_enabled: false,
+                ..cfg.clone()
+            };
+            &effective_cfg
+        } else {
+            cfg
+        };
         let outcome = hybrid::build_hybrid_plan(
             &mut ast,
             session,
             &policy_check_tables,
             &per_table_bytes,
             &registry,
-            cfg,
+            cfg_for_builder,
         );
         match outcome {
             hybrid::BuildOutcome::Plan {
@@ -299,32 +359,69 @@ async fn decide_inner(
                 } else {
                     promotion_reasons.first().copied().unwrap_or(builder_reason)
                 };
-                // Materialize-side size cap (§10.2).
-                let limit = cfg.hybrid_max_remote_scan_bytes.as_u64();
-                if plan.estimated_remote_bytes > limit {
-                    return RouteOutcome::passthrough(PassthroughReason::AboveThreshold {
-                        estimated_bytes: plan.estimated_remote_bytes,
-                        limit,
-                    });
-                }
-                // Per-fragment cap.
-                let frag_limit = cfg.hybrid_max_fragment_bytes.as_u64();
-                for frag in &plan.remote_fragments {
-                    let frag_bytes: u64 = frag
-                        .scanned_tables
-                        .iter()
-                        .filter_map(|t| {
-                            policy_check_tables
-                                .iter()
-                                .position(|x| x == t)
-                                .and_then(|i| per_table_bytes.get(i).copied())
-                        })
-                        .sum();
-                    if frag_bytes > frag_limit {
+                // Size caps. `/*+ melt_route(hybrid) */` bypasses
+                // them — operator escape hatch for "I know the
+                // estimate is wrong / I want this query to run via
+                // hybrid no matter what." Counter-intuitively this
+                // is safer than a manual passthrough because hybrid
+                // still respects policy markers and doesn't expose
+                // the lake bytes to Snowflake.
+                let bypass_caps = matches!(hints.route, Some(crate::hints::RouteHint::Hybrid));
+                if !bypass_caps {
+                    let limit = cfg.hybrid_max_remote_scan_bytes.as_u64();
+                    if plan.estimated_remote_bytes > limit {
                         return RouteOutcome::passthrough(PassthroughReason::AboveThreshold {
-                            estimated_bytes: frag_bytes,
-                            limit: frag_limit,
+                            estimated_bytes: plan.estimated_remote_bytes,
+                            limit,
                         });
+                    }
+                    let frag_limit = cfg.hybrid_max_fragment_bytes.as_u64();
+                    for frag in &plan.remote_fragments {
+                        let frag_bytes: u64 = frag
+                            .scanned_tables
+                            .iter()
+                            .filter_map(|t| {
+                                policy_check_tables
+                                    .iter()
+                                    .position(|x| x == t)
+                                    .and_then(|i| per_table_bytes.get(i).copied())
+                            })
+                            .sum();
+                        if frag_bytes > frag_limit {
+                            return RouteOutcome::passthrough(PassthroughReason::AboveThreshold {
+                                estimated_bytes: frag_bytes,
+                                limit: frag_limit,
+                            });
+                        }
+                    }
+                }
+                // Per-Attach-scan cap. Each Attach rewrite represents
+                // one streaming scan through the community Snowflake
+                // extension. Without bulk materialization, the only
+                // backpressure on a runaway Attach scan is this cap;
+                // unlike Materialize the bytes pulled may not get
+                // joined-down before they hit DuckDB. Defaults to
+                // 10 GiB (intentionally permissive); tighten per-
+                // tenant if you observe single Attach scans crowding
+                // out lake QPS. Over-cap → passthrough — the operator
+                // declared the table remote so passthrough is the
+                // safe behavior; we don't silently downgrade to
+                // Materialize because the Materialize cap is tighter
+                // and would just refuse anyway.
+                if !bypass_caps {
+                    let attach_limit = cfg.hybrid_max_attach_scan_bytes.as_u64();
+                    for rw in &plan.attach_rewrites {
+                        let scan_bytes = policy_check_tables
+                            .iter()
+                            .position(|t| *t == rw.original)
+                            .and_then(|i| per_table_bytes.get(i).copied())
+                            .unwrap_or(0);
+                        if scan_bytes > attach_limit {
+                            return RouteOutcome::passthrough(PassthroughReason::AboveThreshold {
+                                estimated_bytes: scan_bytes,
+                                limit: attach_limit,
+                            });
+                        }
                     }
                 }
                 // Phase 1 metrics (§11 in the design doc).
@@ -355,6 +452,41 @@ async fn decide_inner(
                     .record(plan.attach_rewrites.len() as f64);
                 metrics::histogram!(melt_metrics::HYBRID_MATERIALIZE_NODES_PER_QUERY)
                     .record(plan.remote_fragments.len() as f64);
+                // Per-fragment / per-Attach-scan estimated bytes. Lets
+                // operators see the actual transfer-volume distribution
+                // rather than only the per-query node count. Labeled by
+                // strategy so the two paths don't get aggregated into a
+                // single histogram. Per-fragment Materialize bytes
+                // reuses the same scanned_tables→bytes lookup above.
+                for frag in &plan.remote_fragments {
+                    let bytes: u64 = frag
+                        .scanned_tables
+                        .iter()
+                        .filter_map(|t| {
+                            policy_check_tables
+                                .iter()
+                                .position(|x| x == t)
+                                .and_then(|i| per_table_bytes.get(i).copied())
+                        })
+                        .sum();
+                    metrics::histogram!(
+                        melt_metrics::HYBRID_REMOTE_SCAN_BYTES,
+                        melt_metrics::LABEL_STRATEGY => "materialize",
+                    )
+                    .record(bytes as f64);
+                }
+                for rw in &plan.attach_rewrites {
+                    let bytes = policy_check_tables
+                        .iter()
+                        .position(|t| *t == rw.original)
+                        .and_then(|i| per_table_bytes.get(i).copied())
+                        .unwrap_or(0);
+                    metrics::histogram!(
+                        melt_metrics::HYBRID_REMOTE_SCAN_BYTES,
+                        melt_metrics::LABEL_STRATEGY => "attach",
+                    )
+                    .record(bytes as f64);
+                }
                 tracing::info!(
                     fragments = plan.remote_fragments.len(),
                     attach_rewrites = plan.attach_rewrites.len(),

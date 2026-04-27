@@ -111,7 +111,6 @@ pub struct RouterConfig {
     pub estimate_bytes_cache_ttl: Duration,
 
     // ── Hybrid / dual execution ──────────────────────────────────
-    // See `docs/internal/DUAL_EXECUTION.md` for the design.
     /// Master switch. When false (default), `Route::Hybrid` is never
     /// emitted — Remote-classified tables passthrough as today. When
     /// true, the dual-execution router emits hybrid plans subject to
@@ -166,6 +165,31 @@ pub struct RouterConfig {
     /// is non-trivial. Enable per-tenant during debugging.
     #[serde(default)]
     pub hybrid_profile_attach_queries: bool,
+    /// Periodic refresh interval for the DuckDB Snowflake extension's
+    /// per-table schema cache. The proxy's pool runs `DETACH IF EXISTS
+    /// sf_link; ATTACH ... AS sf_link;` on each pooled connection at
+    /// most once per interval (lazy: per-connection check at recycle
+    /// time). Bounds the staleness window when upstream Snowflake
+    /// schemas evolve. Default 1 hour. Set to 0 to disable
+    /// (useful for tests).
+    #[serde(
+        default = "RouterConfig::default_hybrid_attach_refresh_interval",
+        with = "humantime_serde",
+    )]
+    pub hybrid_attach_refresh_interval: Duration,
+    /// Statement-level result cache TTL for the hybrid path. When
+    /// > 0, identical hybrid queries within the window skip the
+    /// Snowflake roundtrip entirely and replay cached batches.
+    /// Default 0 (disabled).
+    #[serde(
+        default = "RouterConfig::default_hybrid_fragment_cache_ttl",
+        with = "humantime_serde",
+    )]
+    pub hybrid_fragment_cache_ttl: Duration,
+    /// Hard ceiling on cache entries. Oldest entries evict first
+    /// once exceeded.
+    #[serde(default = "RouterConfig::default_hybrid_fragment_cache_max_entries")]
+    pub hybrid_fragment_cache_max_entries: usize,
 }
 
 impl RouterConfig {
@@ -190,6 +214,15 @@ impl RouterConfig {
     fn default_parity_sample_rate() -> f32 {
         0.01
     }
+    fn default_hybrid_attach_refresh_interval() -> Duration {
+        Duration::from_secs(60 * 60)
+    }
+    fn default_hybrid_fragment_cache_ttl() -> Duration {
+        Duration::ZERO
+    }
+    fn default_hybrid_fragment_cache_max_entries() -> usize {
+        256
+    }
     fn default_true() -> bool {
         true
     }
@@ -210,6 +243,9 @@ impl Default for RouterConfig {
             hybrid_allow_oversize: false,
             hybrid_parity_sample_rate: Self::default_parity_sample_rate(),
             hybrid_profile_attach_queries: false,
+            hybrid_attach_refresh_interval: Self::default_hybrid_attach_refresh_interval(),
+            hybrid_fragment_cache_ttl: Self::default_hybrid_fragment_cache_ttl(),
+            hybrid_fragment_cache_max_entries: Self::default_hybrid_fragment_cache_max_entries(),
         }
     }
 }

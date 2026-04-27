@@ -20,6 +20,7 @@ use tower_http::trace::TraceLayer;
 pub type SharedMatcher = Arc<ArcSwap<Option<Arc<SyncTableMatcher>>>>;
 
 use crate::handlers;
+use crate::hybrid_cache::FragmentCache;
 use crate::hybrid_parity::ParityHarness;
 use crate::result_store::ResultStore;
 use crate::session::SessionStore;
@@ -52,6 +53,12 @@ pub struct ProxyState {
     /// here per completed hybrid query; the background task replays
     /// the original SQL against Snowflake and compares digests.
     pub parity: Option<Arc<ParityHarness>>,
+    /// Statement-level result cache for the hybrid path. Present iff
+    /// `router.hybrid_fragment_cache_ttl > 0`. `execute_hybrid` checks
+    /// before staging fragments and writes the eager batches on
+    /// completion. `RouterCache::invalidate_table` cascades into
+    /// [`FragmentCache::invalidate_table`].
+    pub hybrid_cache: Option<Arc<FragmentCache>>,
 }
 
 /// Public entry point. Spins up the axum HTTPS listener.
@@ -103,6 +110,16 @@ where
         None
     };
 
+    // Hybrid result cache — opt-in via `router.hybrid_fragment_cache_ttl`.
+    let hybrid_cache = if !router_cfg.hybrid_fragment_cache_ttl.is_zero() {
+        Some(Arc::new(FragmentCache::new(
+            router_cfg.hybrid_fragment_cache_ttl,
+            router_cfg.hybrid_fragment_cache_max_entries,
+        )))
+    } else {
+        None
+    };
+
     let state = ProxyState {
         backend,
         snowflake,
@@ -116,6 +133,7 @@ where
         request_timeout: limits.request_timeout,
         tls_cert: tls_cert_path,
         parity,
+        hybrid_cache,
     };
 
     let app = Router::new()

@@ -42,8 +42,6 @@ pub const OUTCOME_CANCELLED: &str = "cancelled";
 // ── Hybrid (dual-execution) router metrics ───────────────────────
 // `melt_router_decisions_total{route="hybrid"}` is auto-covered by
 // the existing ROUTER_DECISIONS counter.
-//
-// See `docs/internal/DUAL_EXECUTION.md` §11 for the full surface.
 pub const HYBRID_REASONS: &str = "melt_router_hybrid_reasons_total";
 pub const HYBRID_STRATEGY: &str = "melt_hybrid_strategy_total";
 pub const HYBRID_PUSHDOWN_COLLAPSED: &str = "melt_hybrid_pushdown_collapsed_total";

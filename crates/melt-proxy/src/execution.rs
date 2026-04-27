@@ -126,8 +126,10 @@ pub struct HybridExecution {
 /// Categorised failure for the hybrid execution path. Used by [`run`]
 /// to decide whether to fall back to a Snowflake passthrough or
 /// surface the error to the caller. Mirrors OpenDuck's
-/// `HybridError::is_fallback_eligible` policy
-/// (`docs/internal/DUAL_EXECUTION.md` §9.5).
+/// `HybridError::is_fallback_eligible` policy: only `Unavailable`
+/// (transport-class) errors fall back; backend SQL errors and
+/// auth failures surface to the client so translation/emission
+/// bugs aren't masked.
 #[derive(Debug)]
 pub enum HybridError {
     /// Transport / connection failure to Snowflake (timeout,
@@ -372,32 +374,62 @@ async fn execute_passthrough(input: &RouteInput<'_>) -> Result<PassthroughRespon
         .await
 }
 
-/// Hybrid (dual-execution) path. v1 implements the **Attach-only**
-/// shape end-to-end:
-/// - The plan's `local_sql` already references `sf_link.<db>.<schema>.<t>`
-///   for every Attach-strategy node. The community Snowflake extension
-///   (loaded into the pool by [`crate::server::ProxyState`] when
-///   `router.hybrid_execution` is on) handles predicate/projection
-///   pushdown automatically.
-/// - We delegate to the standard backend `execute()` — the same code
-///   path that powers Lake — and shape the result into a
-///   [`HybridExecution`] envelope.
+/// Hybrid (dual-execution) path. Handles three sub-shapes uniformly:
 ///
-/// **Materialize** support — fetching `RemoteFragment`s via
-/// `SnowflakeClient` as Arrow batches and bulk-loading them into
-/// DuckDB `TEMP TABLE`s via the Appender API — is a follow-up
-/// (`docs/internal/DUAL_EXECUTION.md` §9.3, the full three-sub-path
-/// runtime). For now any plan with non-empty `remote_fragments`
-/// returns [`HybridError::Unavailable`] which triggers the
-/// `is_fallback_eligible` fallback to passthrough. The
-/// `melt_hybrid_fallbacks_total{reason="materialize_unimpl"}` counter
-/// tracks how often this kicks in.
+/// - **Attach-only** plans: `local_sql` already references
+///   `sf_link.<db>.<schema>.<t>` for every node. We just call the
+///   standard backend `execute()` (the same path that powers Lake)
+///   and shape the result into a [`HybridExecution`] envelope. The
+///   community Snowflake DuckDB extension handles predicate /
+///   projection pushdown automatically.
+/// - **Materialize-only** plans: each `RemoteFragment` stages via
+///   `CREATE TEMP TABLE __remote_N AS <fragment_sql>` against the
+///   backend (which has `sf_link` attached, so the fragment runs
+///   through the extension and the data lands in DuckDB without an
+///   out-of-band HTTP path). Then `local_sql` references the staged
+///   placeholders.
+/// - **Mixed** plans: stage the Materialize fragments first, then
+///   run `local_sql` which references both `__remote_N` temp tables
+///   and `sf_link.*` aliases. DuckDB sees no difference — both look
+///   like ordinary catalog entries to the executor.
+///
+/// Optional pre-step: when the proxy's hybrid result cache is
+/// configured and an identical (database, schema, sql) was served
+/// recently, return cached batches and skip the entire backend
+/// pipeline.
 async fn execute_hybrid(
     input: &RouteInput<'_>,
     outcome: RouteOutcome,
     plan: Arc<HybridPlan>,
 ) -> std::result::Result<HybridExecution, HybridError> {
     let ctx = QueryContext::from_session(&input.session);
+
+    // Hybrid result cache lookup (statement-level). When enabled
+    // and a hit is present, we skip the entire fragment-staging +
+    // local_sql pipeline and return cached batches directly. See
+    // `crates/melt-proxy/src/hybrid_cache.rs` for the design.
+    if let Some(cache) = &input.state.hybrid_cache {
+        let key = crate::hybrid_cache::FragmentCache::key_for(
+            &input.sql,
+            input.session.database.as_deref().unwrap_or(""),
+            input.session.schema.as_deref().unwrap_or(""),
+        );
+        if let Some((schema, batches)) = cache.get(&key) {
+            tracing::info!(
+                api = input.api,
+                rows = batches.iter().map(|b| b.num_rows()).sum::<usize>() as u64,
+                cached_at_ttl = ?input.state.router_cfg.hybrid_fragment_cache_ttl,
+                "hybrid: cache hit; skipping Snowflake roundtrip",
+            );
+            return Ok(HybridExecution {
+                outcome,
+                schema,
+                eager_batches: batches,
+                continuation: None,
+                plan,
+            });
+        }
+    }
 
     // Step 1 — Materialize: stage each RemoteFragment into a
     // `TEMP TABLE __remote_i` on the backend. The fragment SQL is
@@ -530,6 +562,72 @@ async fn execute_hybrid(
             hybrid_eager_batches: eager.clone(),
         };
         let _ = parity.sample(sample);
+    }
+
+    // Profiler tap. When `router.hybrid_profile_attach_queries = true`
+    // AND this plan has Attach nodes, run `EXPLAIN ANALYZE local_sql`
+    // and log every line carrying a `query_string` (the field DuckDB's
+    // community Snowflake extension annotates `snowflake_scan`
+    // operators with). The doubled query cost is why this is opt-in
+    // and only triggers on Attach plans — Materialize plans expose
+    // the outgoing SQL via `RemoteFragment::snowflake_sql` already.
+    //
+    // Failures are non-fatal — the main query already returned;
+    // profiling is observability not correctness.
+    if input.state.router_cfg.hybrid_profile_attach_queries
+        && !plan.attach_rewrites.is_empty()
+    {
+        match input
+            .state
+            .backend
+            .analyze_query(&plan.local_sql, &ctx)
+            .await
+        {
+            Ok(plan_text) if !plan_text.is_empty() => {
+                let attach_lines: Vec<&str> = plan_text
+                    .lines()
+                    .filter(|l| {
+                        l.contains("snowflake_scan") || l.contains("query_string")
+                    })
+                    .collect();
+                tracing::info!(
+                    api = input.api,
+                    attach_node_count = plan.attach_rewrites.len(),
+                    snowflake_operator_lines = attach_lines.len(),
+                    profile = %attach_lines.join(" | "),
+                    "hybrid attach profiler",
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    "hybrid attach profiler EXPLAIN ANALYZE failed; ignoring",
+                );
+            }
+        }
+    }
+
+    // Cache write — only when we have the full result set (drain_full)
+    // AND the cache is enabled. Partial results (continuation = Some)
+    // would corrupt the cache because we'd return cached "first batch
+    // + cached continuation pointer" later when the cached
+    // continuation no longer exists.
+    if let (Some(cache), true) = (&input.state.hybrid_cache, input.drain_full) {
+        let key = crate::hybrid_cache::FragmentCache::key_for(
+            &input.sql,
+            input.session.database.as_deref().unwrap_or(""),
+            input.session.schema.as_deref().unwrap_or(""),
+        );
+        let exec_for_tables = HybridExecution {
+            outcome: outcome.clone(),
+            schema: schema.clone(),
+            eager_batches: eager.clone(),
+            continuation: None,
+            plan: plan.clone(),
+        };
+        let scanned = crate::hybrid_cache::cache_write_from_execution(&exec_for_tables);
+        cache.insert(key, scanned, schema.clone(), eager.clone());
     }
 
     Ok(HybridExecution {

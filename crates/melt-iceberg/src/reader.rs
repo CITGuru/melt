@@ -105,4 +105,46 @@ impl StorageBackend for IcebergBackend {
     fn kind(&self) -> BackendKind {
         BackendKind::Iceberg
     }
+
+    fn hybrid_attach_available(&self) -> bool {
+        self.pool.sf_link_available()
+    }
+
+    /// Runs `EXPLAIN ANALYZE <sql>` on a checked-out reader. Pulls
+    /// every row of the rendered plan into a single string. Used by
+    /// the dual-execution router's profiler tap; doubles execution
+    /// cost so the proxy gates this on `hybrid_profile_attach_queries`.
+    async fn analyze_query(&self, sql: &str, _ctx: &QueryContext) -> Result<String> {
+        let pool = self.pool.clone();
+        // DuckDB's EXPLAIN ANALYZE returns a 2-column result
+        // (`explain_key`, `explain_value`). The rendered plan lives in
+        // `explain_value`; we concatenate per-row to a single text
+        // blob the proxy can grep for `snowflake_scan` operators.
+        let analyze = format!("EXPLAIN ANALYZE {sql}");
+        tokio::task::spawn_blocking(move || -> Result<String> {
+            let mutex = futures::executor::block_on(pool.read())?;
+            let guard = mutex.lock();
+            let mut stmt = guard
+                .prepare(&analyze)
+                .map_err(|e| MeltError::backend(e.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let key: String = row.get(0).unwrap_or_default();
+                    let value: String = row.get(1).unwrap_or_default();
+                    Ok(format!("{key}\n{value}"))
+                })
+                .map_err(|e| MeltError::backend(e.to_string()))?;
+            let mut out = String::new();
+            for r in rows {
+                let line = r.map_err(|e| MeltError::backend(e.to_string()))?;
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&line);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| MeltError::backend(format!("spawn_blocking: {e}")))?
+    }
 }
