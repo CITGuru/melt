@@ -51,7 +51,9 @@ impl SyncState {
 /// `Discovered` rows are candidates for the idle-days sweep.
 /// `ViewDependency` rows are demoted only when no `active` parent
 /// view still references them (see
-/// `ControlCatalog::idle_discovered`).
+/// `ControlCatalog::idle_discovered`). `Remote` rows are operator-
+/// declared never-synced — they're tracked only so the dual-execution
+/// router can record query recency and reason about hybrid eligibility.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncSource {
@@ -61,6 +63,12 @@ pub enum SyncSource {
     /// onto it. Carried as its own source so demotion can ref-count
     /// through `melt_view_dependencies`.
     ViewDependency,
+    /// Matched a `[sync].remote` glob — never synced to the lake;
+    /// always read from Snowflake via the dual-execution router. Has
+    /// no `melt_table_stats` lifecycle (no bootstrap, no demotion).
+    /// Kept here so future "track query recency for remote tables"
+    /// work has a clean provenance label.
+    Remote,
 }
 
 impl SyncSource {
@@ -69,6 +77,7 @@ impl SyncSource {
             SyncSource::Include => "include",
             SyncSource::Discovered => "discovered",
             SyncSource::ViewDependency => "view_dependency",
+            SyncSource::Remote => "remote",
         }
     }
 
@@ -76,6 +85,7 @@ impl SyncSource {
         match s {
             "include" => SyncSource::Include,
             "view_dependency" => SyncSource::ViewDependency,
+            "remote" => SyncSource::Remote,
             _ => SyncSource::Discovered,
         }
     }
@@ -224,6 +234,17 @@ pub struct SyncConfig {
     #[serde(default)]
     pub exclude: Vec<String>,
 
+    /// Glob patterns the dual-execution router should treat as
+    /// always-remote — never synced, always read from Snowflake via
+    /// the hybrid bridges (Attach for single-scan, Materialize for
+    /// collapsed multi-scan subtrees).
+    ///
+    /// Precedence: `exclude` > `remote` > `include` > not_matched.
+    /// Exclude wins over remote so operators can still block
+    /// `SNOWFLAKE.*` even under a broad `remote = ["*.*.*"]` glob.
+    #[serde(default)]
+    pub remote: Vec<String>,
+
     /// Tunables for the discovery path.
     #[serde(default)]
     pub lazy: LazyDiscoverConfig,
@@ -288,6 +309,7 @@ impl Default for SyncConfig {
             auto_discover: Self::default_auto_discover(),
             include: Vec::new(),
             exclude: Vec::new(),
+            remote: Vec::new(),
             lazy: LazyDiscoverConfig::default(),
             views: ViewsConfig::default(),
         }
@@ -375,11 +397,20 @@ impl Default for LazyDiscoverConfig {
 }
 
 /// Outcome of matching a single `TableRef` against a `[sync]` block.
+///
+/// Precedence (most-restrictive wins): `Excluded` > `Remote` >
+/// `Included` > `NotMatched`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MatchOutcome {
     /// Matches an exclude glob (or a built-in system exclude). Router
     /// should force Snowflake passthrough and NOT register the table.
     Excluded,
+    /// Matches at least one `[sync].remote` glob — operator-declared
+    /// never-synced. Router emits `Route::Hybrid` for queries that
+    /// reference this table (gated on `router.hybrid_execution`).
+    /// Always wins over `include` so a permissive `include = [...]`
+    /// can't accidentally start syncing a remote-declared table.
+    Remote,
     /// Matches at least one include glob. Router should register the
     /// table with `SyncSource::Include`.
     Included,
@@ -388,10 +419,13 @@ pub enum MatchOutcome {
     NotMatched,
 }
 
-/// Compiled glob-set pair derived from a [`SyncConfig`]. Built once
+/// Compiled glob-set triple derived from a [`SyncConfig`]. Built once
 /// at startup (and on hot-reload), then cheap to match per query.
 #[derive(Debug)]
 pub struct SyncTableMatcher {
+    /// `[sync].remote` patterns. Checked after `exclude`, before
+    /// `include`. Drives the dual-execution router's `Remote` outcome.
+    remote: GlobSet,
     include: GlobSet,
     exclude: GlobSet,
     auto_discover: bool,
@@ -406,6 +440,7 @@ impl SyncTableMatcher {
 
     pub fn from_config(cfg: &SyncConfig) -> Result<Self> {
         let include = compile(&cfg.include, "include")?;
+        let remote = compile(&cfg.remote, "remote")?;
         let mut exclude_patterns = cfg.exclude.clone();
         if cfg.lazy.exclude_system_schemas {
             for p in Self::SYSTEM_EXCLUDES {
@@ -434,18 +469,47 @@ impl SyncTableMatcher {
             }
         }
 
+        // Same shadowing warning for `remote` patterns matching either
+        // an exclude (silently drops the table from hybrid eligibility)
+        // or an include (which would be operator confusion — both flags
+        // would otherwise apply to the same FQN).
+        for rem in &cfg.remote {
+            if let Ok(g) = Glob::new(&normalize_pattern(rem)) {
+                let candidate = g.glob();
+                if exclude.is_match(candidate) {
+                    tracing::warn!(
+                        pattern = %rem,
+                        "[sync] remote pattern is shadowed by an exclude \
+                         pattern; exclude wins."
+                    );
+                }
+                if include.is_match(candidate) {
+                    tracing::warn!(
+                        pattern = %rem,
+                        "[sync] remote pattern overlaps an include pattern; \
+                         remote wins (table will be federated, not synced)."
+                    );
+                }
+            }
+        }
+
         Ok(Self {
+            remote,
             include,
             exclude,
             auto_discover: cfg.auto_discover,
         })
     }
 
-    /// Classify a single table.
+    /// Classify a single table. Precedence:
+    /// `Excluded` > `Remote` > `Included` > `NotMatched`.
     pub fn classify(&self, t: &TableRef) -> MatchOutcome {
         let fqn = format!("{}.{}.{}", t.database, t.schema, t.name).to_uppercase();
         if self.exclude.is_match(&fqn) {
             return MatchOutcome::Excluded;
+        }
+        if self.remote.is_match(&fqn) {
+            return MatchOutcome::Remote;
         }
         if self.include.is_match(&fqn) {
             return MatchOutcome::Included;
@@ -487,10 +551,20 @@ mod tests {
     }
 
     fn matcher(include: &[&str], exclude: &[&str], system: bool) -> SyncTableMatcher {
+        matcher_full(include, exclude, &[], system)
+    }
+
+    fn matcher_full(
+        include: &[&str],
+        exclude: &[&str],
+        remote: &[&str],
+        system: bool,
+    ) -> SyncTableMatcher {
         SyncTableMatcher::from_config(&SyncConfig {
             auto_discover: true,
             include: include.iter().map(|s| s.to_string()).collect(),
             exclude: exclude.iter().map(|s| s.to_string()).collect(),
+            remote: remote.iter().map(|s| s.to_string()).collect(),
             lazy: LazyDiscoverConfig {
                 exclude_system_schemas: system,
                 ..Default::default()
@@ -644,11 +718,75 @@ mod tests {
         assert!(cfg.auto_discover);
         assert!(cfg.include.is_empty());
         assert!(cfg.exclude.is_empty());
+        assert!(cfg.remote.is_empty());
         assert!(!cfg.lazy.auto_enable_change_tracking);
         assert!(cfg.lazy.exclude_system_schemas);
         assert!(cfg.views.auto_include_dependencies);
         assert!(!cfg.views.prefer_stream_on_view);
         assert_eq!(cfg.views.max_dependency_depth, 4);
+    }
+
+    #[test]
+    fn remote_glob_classifies_remote() {
+        let m = matcher_full(&[], &[], &["WAREHOUSE.*.*"], false);
+        assert_eq!(
+            m.classify(&t("WAREHOUSE", "PUBLIC", "USERS")),
+            MatchOutcome::Remote
+        );
+        assert_eq!(
+            m.classify(&t("ANALYTICS", "PUBLIC", "ORDERS")),
+            MatchOutcome::NotMatched
+        );
+    }
+
+    #[test]
+    fn remote_wins_over_include() {
+        // The matcher's documented precedence is exclude > remote >
+        // include. A table matching both `include` and `remote` must
+        // resolve as Remote (federate, don't sync) — otherwise the
+        // operator's intent to never sync would be silently ignored.
+        let m = matcher_full(&["WAREHOUSE.*.*"], &[], &["WAREHOUSE.RESTRICTED.*"], false);
+        assert_eq!(
+            m.classify(&t("WAREHOUSE", "RESTRICTED", "USERS")),
+            MatchOutcome::Remote,
+            "remote should win over include for the same FQN",
+        );
+        // A table covered by `include` but NOT `remote` stays Included.
+        assert_eq!(
+            m.classify(&t("WAREHOUSE", "PUBLIC", "ORDERS")),
+            MatchOutcome::Included,
+        );
+    }
+
+    #[test]
+    fn exclude_wins_over_remote() {
+        // A defensive `exclude = ["SNOWFLAKE.*"]` should still bite
+        // even under a permissive `remote = ["*.*.*"]`.
+        let m = matcher_full(&[], &["SNOWFLAKE.*.*"], &["*.*.*"], false);
+        assert_eq!(
+            m.classify(&t("SNOWFLAKE", "ACCOUNT_USAGE", "QUERY_HISTORY")),
+            MatchOutcome::Excluded,
+        );
+        assert_eq!(
+            m.classify(&t("WAREHOUSE", "PUBLIC", "USERS")),
+            MatchOutcome::Remote,
+        );
+    }
+
+    #[test]
+    fn remote_glob_invalid_pattern_errors_with_remote_label() {
+        let cfg = SyncConfig {
+            remote: vec!["[broken".to_string()],
+            ..Default::default()
+        };
+        let err = SyncTableMatcher::from_config(&cfg).unwrap_err();
+        match err {
+            MeltError::Config(msg) => {
+                assert!(msg.contains("remote"), "got {msg}");
+                assert!(msg.contains("[broken"), "got {msg}");
+            }
+            other => panic!("expected Config error, got {other:?}"),
+        }
     }
 
     #[test]

@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::execution::{self, Executed, LakeExecution, RouteInput};
+use crate::execution::{self, Executed, RouteInput};
 use crate::handlers::session::extract_bearer;
 use crate::handlers::statement::error_response;
 use crate::server::ProxyState;
@@ -120,22 +120,27 @@ async fn query_request_inner(
     .await;
 
     match result {
-        Ok(Executed::Lake(lake)) => build_v1_lake_response(&session, lake),
+        Ok(Executed::Lake(lake)) => {
+            build_v1_local_response(&session, lake.schema, lake.eager_batches)
+        }
+        Ok(Executed::Hybrid(hy)) => {
+            // v1 has no partition-polling convention; the full hybrid
+            // result was already drained inline by `execute_hybrid`.
+            // Same response shape as Lake.
+            build_v1_local_response(&session, hy.schema, hy.eager_batches)
+        }
         Ok(Executed::Passthrough(resp)) => forward_passthrough_response(resp),
         Err(e) => error_response(e),
     }
 }
 
-/// Pack a fully-drained `LakeExecution` into the v1 response envelope
-/// every driver expects.
-fn build_v1_lake_response(session: &Arc<SessionInfo>, lake: LakeExecution) -> Response {
-    let LakeExecution {
-        schema,
-        eager_batches,
-        continuation: _,
-        outcome: _,
-    } = lake;
-
+/// Pack a fully-drained local execution (Lake or Hybrid) into the v1
+/// response envelope every driver expects.
+fn build_v1_local_response(
+    session: &Arc<SessionInfo>,
+    schema: Option<arrow_schema::SchemaRef>,
+    eager_batches: Vec<arrow::record_batch::RecordBatch>,
+) -> Response {
     let rowtype = schema
         .as_deref()
         .map(schema_to_v1_columns)

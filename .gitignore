@@ -53,6 +53,9 @@ venv/
 examples/python/variants/
 !examples/python/variants/.gitkeep
 
+examples/python/variants_hybrid/
+!examples/python/variants_hybrid/.gitkeep
+
 # ── Docker / Compose ──────────────────────────────────────────────
 # Local-only overrides (convention from compose docs).
 docker-compose.override.yml

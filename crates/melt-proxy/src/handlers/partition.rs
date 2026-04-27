@@ -50,7 +50,11 @@ pub async fn poll(
     };
 
     match state.results.lookup_route_for_session(handle, &session.id) {
-        Some(RouteKind::Lake) => {}
+        // Hybrid streams from the local DuckDB writer (the same temp-
+        // table-backed result store as Lake), so partition polling
+        // takes the local-result path. The handler never needs to
+        // distinguish Hybrid from Lake here.
+        Some(RouteKind::Lake) | Some(RouteKind::Hybrid) => {}
         Some(RouteKind::Snowflake) => {
             return forward_to_snowflake(state, handle.to_string(), q.partition, &token).await;
         }
@@ -116,7 +120,9 @@ pub async fn cancel(
     };
 
     match state.results.lookup_route_for_session(handle, &session.id) {
-        Some(RouteKind::Lake) => {
+        // Hybrid handles live in the same local result store as Lake;
+        // cancel drops the entry the same way.
+        Some(RouteKind::Lake) | Some(RouteKind::Hybrid) => {
             let _ = state.results.cancel(handle, &session.id);
             (StatusCode::OK, "{}").into_response()
         }

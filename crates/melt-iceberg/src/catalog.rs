@@ -136,9 +136,11 @@ impl IcebergCatalogClient {
         Ok(t.iter().map(|x| s.tables.contains(x)).collect())
     }
 
-    pub async fn estimate_scan_bytes(&self, t: &[TableRef]) -> Result<u64> {
+    pub async fn estimate_scan_bytes(&self, t: &[TableRef]) -> Result<Vec<u64>> {
         let s = self.state.read();
-        Ok(t.iter().map(|x| *s.estimates.get(x).unwrap_or(&0)).sum())
+        Ok(t.iter()
+            .map(|x| *s.estimates.get(x).unwrap_or(&0))
+            .collect())
     }
 
     pub async fn policy_markers(&self, t: &[TableRef]) -> Result<Vec<Option<String>>> {

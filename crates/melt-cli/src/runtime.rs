@@ -73,7 +73,32 @@ async fn run_ducklake(
     }
 
     let catalog = Arc::new(CatalogClient::connect(&dl.catalog_url).await?);
-    let pool = Arc::new(DuckLakePool::new(dl).await?);
+    // When `[router].hybrid_execution = true` AND `hybrid_attach_enabled
+    // = true`, ask the pool to also `INSTALL snowflake FROM community;
+    // ATTACH ... AS sf_link;` on every connection so the dual-execution
+    // router's Attach strategy can resolve `sf_link.<db>.<schema>.<t>`
+    // refs. Falls back to None if creds are missing — the connection
+    // setup will skip the attach and Materialize will pick up the
+    // slack at execute time.
+    let hybrid_attach_sql = if cfg.router.hybrid_execution && cfg.router.hybrid_attach_enabled {
+        melt_snowflake::sf_link_attach_sql(&cfg.snowflake)
+    } else {
+        None
+    };
+    // Pair the attach SQL with the periodic refresh SQL +
+    // interval (default 1h, configurable via
+    // `router.hybrid_attach_refresh_interval`). The pool's recycle
+    // hook runs `DETACH IF EXISTS sf_link; ATTACH ...` on at most
+    // one connection per interval so the DuckDB Snowflake extension's
+    // per-table schema cache doesn't go indefinitely stale.
+    let hybrid_attach_refresh = hybrid_attach_sql.as_ref().and_then(|_| {
+        melt_snowflake::sf_link_refresh_sql(&cfg.snowflake)
+            .map(|sql| (sql, cfg.router.hybrid_attach_refresh_interval))
+    });
+    let pool = Arc::new(
+        DuckLakePool::new_with_extra_sql_and_refresh(dl, hybrid_attach_sql, hybrid_attach_refresh)
+            .await?,
+    );
     let readiness = build_readiness_ducklake(catalog.clone());
     let metrics = metrics_cfg(&cfg);
 
@@ -256,7 +281,20 @@ async fn run_iceberg(
 
     let catalog = Arc::new(IcebergCatalogClient::connect(&ib).await?);
     catalog.assert_supported()?;
-    let pool = Arc::new(IcebergPool::new(&ib).await?);
+    // See the matching block in `run_ducklake` for the design rationale.
+    let hybrid_attach_sql = if cfg.router.hybrid_execution && cfg.router.hybrid_attach_enabled {
+        melt_snowflake::sf_link_attach_sql(&cfg.snowflake)
+    } else {
+        None
+    };
+    let hybrid_attach_refresh = hybrid_attach_sql.as_ref().and_then(|_| {
+        melt_snowflake::sf_link_refresh_sql(&cfg.snowflake)
+            .map(|sql| (sql, cfg.router.hybrid_attach_refresh_interval))
+    });
+    let pool = Arc::new(
+        IcebergPool::new_with_extra_sql_and_refresh(&ib, hybrid_attach_sql, hybrid_attach_refresh)
+            .await?,
+    );
     let readiness = melt_metrics::ReadinessProbe::always_ready();
     let metrics = metrics_cfg(&cfg);
 
@@ -593,13 +631,37 @@ fn render_json(v: &serde_json::Value) -> String {
 }
 
 fn print_lazy_route(cfg: &MeltConfig, sql: &str) -> Result<()> {
-    use melt_router::decide::lazy_classify;
+    use melt_router::decide::lazy_classify_with_matcher;
 
     // Lazy session for the AST resolver — `melt route` doesn't have a
     // real Snowflake session, so we synthesize a placeholder using the
     // configured account-default DB/schema if any.
-    let session = melt_core::SessionInfo::new("melt-cli-route", 1);
-    let outcome = lazy_classify(sql, &session, &cfg.snowflake);
+    let mut session = melt_core::SessionInfo::new("melt-cli-route", 1);
+    // Populate DB/schema defaults from the Snowflake config so
+    // 1- and 2-part table references in the SQL can be resolved
+    // (matches what the live proxy does for SnowflakeClient's
+    // default role/db/schema).
+    if !cfg.snowflake.database.is_empty() {
+        session.database = Some(cfg.snowflake.database.clone());
+    }
+    if !cfg.snowflake.schema.is_empty() {
+        session.schema = Some(cfg.snowflake.schema.clone());
+    }
+
+    // Load the SyncTableMatcher so `[sync].remote` globs are visible
+    // to the offline classifier. Without this, the Python regression
+    // variants in `examples/python/variants_hybrid/` can't be
+    // evaluated without a running proxy.
+    let matcher = match melt_core::SyncTableMatcher::from_config(&cfg.sync) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            tracing::warn!(error = %e, "melt route: [sync] matcher build failed; hybrid globs won't be visible");
+            None
+        }
+    };
+
+    let outcome =
+        lazy_classify_with_matcher(sql, &session, &cfg.snowflake, matcher.as_ref(), &cfg.router);
 
     println!("input SQL: {sql}");
     println!("route: {}", outcome.route.as_str());
@@ -613,6 +675,44 @@ fn print_lazy_route(cfg: &MeltConfig, sql: &str) -> Result<()> {
         }
         melt_core::Route::Snowflake { reason } => {
             println!("reason: {} ({:?})", reason.label(), reason);
+        }
+        melt_core::Route::Hybrid {
+            plan,
+            reason,
+            estimated_remote_bytes,
+        } => {
+            println!("reason: {} ({})", reason.label(), reason);
+            println!("strategy: {}", plan.strategy_label());
+            println!(
+                "remote_fragments: {}  attach_rewrites: {}  est_remote_bytes: {}",
+                plan.remote_fragments.len(),
+                plan.attach_rewrites.len(),
+                estimated_remote_bytes
+            );
+            for frag in &plan.remote_fragments {
+                println!(
+                    "\n[REMOTE,materialize] {} ({} table{})",
+                    frag.placeholder,
+                    frag.scanned_tables.len(),
+                    if frag.scanned_tables.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                );
+                println!("{}", frag.snowflake_sql);
+            }
+            for rw in &plan.attach_rewrites {
+                println!(
+                    "\n[REMOTE,attach] {} → {}",
+                    rw.original.fqn(),
+                    rw.alias_reference
+                );
+            }
+            if !plan.local_sql.is_empty() {
+                println!("\nlocal SQL:");
+                println!("{}", plan.local_sql);
+            }
         }
     }
     println!("\nNote: `melt route` runs the cheap classification path only.");

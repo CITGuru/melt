@@ -22,7 +22,7 @@ pub struct Cache {
 
     tables: Mutex<LruCache<TableRef, (bool, Instant)>>,
     policy: Mutex<LruCache<TableRef, (Option<String>, Instant)>>,
-    estimates: Mutex<LruCache<Vec<TableRef>, (u64, Instant)>>,
+    estimates: Mutex<LruCache<Vec<TableRef>, (Vec<u64>, Instant)>>,
 }
 
 impl Cache {
@@ -139,11 +139,15 @@ impl Cache {
         out
     }
 
-    pub async fn estimate_bytes(
+    /// Per-table byte estimates, in the same order as `tables`. The
+    /// dual-execution router needs per-table fidelity for the
+    /// oversize trigger case and the per-Materialize-fragment cap.
+    /// Returns `None` only when the backend errors.
+    pub async fn estimate_bytes_per_table(
         &self,
         backend: &dyn StorageBackend,
         tables: &[TableRef],
-    ) -> Option<u64> {
+    ) -> Option<Vec<u64>> {
         let now = Instant::now();
         let key: Vec<TableRef> = tables.to_vec();
         if let Some((v, at)) = self.estimates.lock().peek(&key).cloned() {
@@ -153,7 +157,15 @@ impl Cache {
         }
         match backend.estimate_scan_bytes(tables).await {
             Ok(v) => {
-                self.estimates.lock().put(key, (v, now));
+                if v.len() != tables.len() {
+                    tracing::warn!(
+                        expected = tables.len(),
+                        got = v.len(),
+                        "estimate_scan_bytes returned wrong-length vec; ignoring",
+                    );
+                    return None;
+                }
+                self.estimates.lock().put(key, (v.clone(), now));
                 Some(v)
             }
             Err(e) => {
@@ -161,6 +173,20 @@ impl Cache {
                 None
             }
         }
+    }
+
+    /// Sum of per-table estimates. Used by the existing
+    /// `lake_max_scan_bytes` guardrail (one cap across the whole
+    /// query). Built on top of [`Self::estimate_bytes_per_table`] so
+    /// both APIs hit the same TTL cache entry.
+    pub async fn estimate_bytes(
+        &self,
+        backend: &dyn StorageBackend,
+        tables: &[TableRef],
+    ) -> Option<u64> {
+        self.estimate_bytes_per_table(backend, tables)
+            .await
+            .map(|v| v.iter().sum())
     }
 }
 

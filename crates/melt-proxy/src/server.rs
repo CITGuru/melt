@@ -20,6 +20,8 @@ use tower_http::trace::TraceLayer;
 pub type SharedMatcher = Arc<ArcSwap<Option<Arc<SyncTableMatcher>>>>;
 
 use crate::handlers;
+use crate::hybrid_cache::FragmentCache;
+use crate::hybrid_parity::ParityHarness;
 use crate::result_store::ResultStore;
 use crate::session::SessionStore;
 
@@ -45,6 +47,18 @@ pub struct ProxyState {
     /// Sibling `ca.pem` next to `tls_cert` is served at `/melt/ca.pem`
     /// when this is `Some` and the file exists. Powers `melt bootstrap client`.
     pub tls_cert: Option<std::path::PathBuf>,
+    /// Bounded parity-sampler handle. Present iff
+    /// `router.hybrid_parity_sample_rate > 0.0`. `execute_hybrid`
+    /// opportunistically pushes a [`crate::hybrid_parity::ParitySample`]
+    /// here per completed hybrid query; the background task replays
+    /// the original SQL against Snowflake and compares digests.
+    pub parity: Option<Arc<ParityHarness>>,
+    /// Statement-level result cache for the hybrid path. Present iff
+    /// `router.hybrid_fragment_cache_ttl > 0`. `execute_hybrid` checks
+    /// before staging fragments and writes the eager batches on
+    /// completion. `RouterCache::invalidate_table` cascades into
+    /// [`FragmentCache::invalidate_table`].
+    pub hybrid_cache: Option<Arc<FragmentCache>>,
 }
 
 /// Public entry point. Spins up the axum HTTPS listener.
@@ -82,6 +96,30 @@ where
         Some(cfg.tls_cert.clone())
     };
 
+    // Parity sampler — only spawned when `router.hybrid_parity_sample_rate > 0`.
+    // Channel capacity is generous (64) so transient execute_hybrid
+    // bursts don't drop samples; drop-on-full is the right policy for
+    // a diagnostic harness.
+    let parity = if router_cfg.hybrid_parity_sample_rate > 0.0 {
+        Some(Arc::new(ParityHarness::spawn(
+            snowflake.clone(),
+            router_cfg.hybrid_parity_sample_rate,
+            64,
+        )))
+    } else {
+        None
+    };
+
+    // Hybrid result cache — opt-in via `router.hybrid_fragment_cache_ttl`.
+    let hybrid_cache = if !router_cfg.hybrid_fragment_cache_ttl.is_zero() {
+        Some(Arc::new(FragmentCache::new(
+            router_cfg.hybrid_fragment_cache_ttl,
+            router_cfg.hybrid_fragment_cache_max_entries,
+        )))
+    } else {
+        None
+    };
+
     let state = ProxyState {
         backend,
         snowflake,
@@ -94,6 +132,8 @@ where
         results,
         request_timeout: limits.request_timeout,
         tls_cert: tls_cert_path,
+        parity,
+        hybrid_cache,
     };
 
     let app = Router::new()

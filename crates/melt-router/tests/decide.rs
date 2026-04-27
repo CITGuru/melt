@@ -26,8 +26,12 @@ impl StorageBackend for MockBackend {
     async fn execute(&self, _sql: &str, _ctx: &QueryContext) -> Result<RecordBatchStream> {
         Err(MeltError::backend("mock"))
     }
-    async fn estimate_scan_bytes(&self, _t: &[TableRef]) -> Result<u64> {
-        Ok(self.bytes)
+    async fn estimate_scan_bytes(&self, t: &[TableRef]) -> Result<Vec<u64>> {
+        // Mock backend reports the same per-table byte count for every
+        // input — sufficient for the existing decide tests, which only
+        // care about the SUM crossing `lake_max_scan_bytes`.
+        let per = self.bytes / t.len().max(1) as u64;
+        Ok(vec![per; t.len()])
     }
     async fn tables_exist(&self, t: &[TableRef]) -> Result<Vec<bool>> {
         Ok(t.iter().map(|x| self.tables.contains(x)).collect())
