@@ -59,13 +59,15 @@ BEGIN
             CHECK (sync_state IN ('pending','bootstrapping','active','quarantined'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END;
-    -- Source check widens to include 'view_dependency'. Drop + recreate
-    -- so upgrades from earlier schemas pick up the new variant.
+    -- Source check widens over time. Drop + recreate so upgrades from
+    -- earlier schemas pick up new variants. `view_dependency` was added
+    -- when sync gained view decomposition; `remote` was added with the
+    -- dual-execution router (operator-declared never-synced tables).
     ALTER TABLE melt_table_stats DROP CONSTRAINT IF EXISTS melt_table_stats_source_check;
     BEGIN
         ALTER TABLE melt_table_stats
             ADD CONSTRAINT melt_table_stats_source_check
-            CHECK (source IN ('include','discovered','view_dependency'));
+            CHECK (source IN ('include','discovered','view_dependency','remote'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END;
     BEGIN

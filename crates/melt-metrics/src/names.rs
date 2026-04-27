@@ -32,8 +32,26 @@ pub const LABEL_BACKEND: &str = "backend";
 pub const LABEL_TABLE: &str = "table";
 pub const LABEL_OUTCOME: &str = "outcome";
 pub const LABEL_REASON: &str = "reason";
+pub const LABEL_STRATEGY: &str = "strategy";
 
 pub const OUTCOME_OK: &str = "ok";
 pub const OUTCOME_ERR: &str = "err";
 pub const OUTCOME_FALLBACK: &str = "fallback";
 pub const OUTCOME_CANCELLED: &str = "cancelled";
+
+// ── Hybrid (dual-execution) router metrics ───────────────────────
+// `melt_router_decisions_total{route="hybrid"}` is auto-covered by
+// the existing ROUTER_DECISIONS counter.
+pub const HYBRID_REASONS: &str = "melt_router_hybrid_reasons_total";
+pub const HYBRID_STRATEGY: &str = "melt_hybrid_strategy_total";
+pub const HYBRID_PUSHDOWN_COLLAPSED: &str = "melt_hybrid_pushdown_collapsed_total";
+pub const HYBRID_FALLBACKS: &str = "melt_hybrid_fallbacks_total";
+pub const HYBRID_REMOTE_ERRORS: &str = "melt_hybrid_remote_errors_total";
+pub const HYBRID_ATTACH_UNAVAILABLE: &str = "melt_hybrid_attach_unavailable_total";
+pub const HYBRID_PARITY_MISMATCHES: &str = "melt_hybrid_parity_mismatches_total";
+pub const HYBRID_PARITY_SAMPLE_DROPS: &str = "melt_hybrid_parity_sample_drops_total";
+
+pub const HYBRID_REMOTE_SCAN_BYTES: &str = "melt_hybrid_remote_scan_bytes";
+pub const HYBRID_MATERIALIZE_LATENCY: &str = "melt_hybrid_materialize_latency_seconds";
+pub const HYBRID_ATTACH_NODES_PER_QUERY: &str = "melt_hybrid_attach_nodes_per_query";
+pub const HYBRID_MATERIALIZE_NODES_PER_QUERY: &str = "melt_hybrid_materialize_nodes_per_query";

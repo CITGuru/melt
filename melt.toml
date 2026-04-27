@@ -94,6 +94,62 @@ lake_max_scan_bytes      = "100GB"
 table_exists_cache_ttl   = "5m"
 estimate_bytes_cache_ttl = "1m"
 
+# ── Hybrid (dual-execution) router — opt-in, off by default ──────
+# When false, Remote-classified tables (matched by `[sync].remote`)
+# fall back to today's safe behaviour (passthrough on first Remote
+# table). When true, the router builds a hybrid plan and the proxy
+# executes via the Attach (community Snowflake extension) and
+# Materialize (SnowflakeClient + Arrow IPC + TEMP TABLE) bridges,
+# selected per RemoteSql node.
+#
+# Off by default. Pair with `[sync].remote` patterns to opt in.
+hybrid_execution             = false
+
+# Materialize-strategy caps (multi-scan RemoteSql nodes).
+# Sum + per-fragment bytes the Materialize path may pull from
+# Snowflake. Above the sum, the whole query collapses to passthrough
+# with `AboveThreshold`.
+hybrid_max_remote_scan_bytes = "5GiB"
+hybrid_max_fragment_bytes    = "2GiB"
+
+# Attach-strategy caps (single-scan RemoteSql nodes). Set
+# `hybrid_attach_enabled = false` as a kill switch when the
+# community extension misbehaves; the pool also flips it off
+# automatically when the extension fails to load.
+hybrid_attach_enabled        = true
+hybrid_max_attach_scan_bytes = "10GiB"
+
+# Trigger-case toggles. Cases 2 (bootstrapping) and 3 (single-table
+# oversize) are off by default — flip on per-tenant once you've
+# confirmed parity-sampler signal is clean.
+hybrid_allow_bootstrapping   = false
+hybrid_allow_oversize        = false
+
+# Diagnostic: probability with which the parity sampler replays each
+# hybrid query against pure Snowflake to detect type-drift mismatches.
+# 0.0 disables; 0.01 (1%) is the default. Crank to 0.1 during initial
+# rollout to accumulate signal faster.
+hybrid_parity_sample_rate    = 0.01
+
+# Diagnostic: tap DuckDB's EXPLAIN ANALYZE after Attach queries and log
+# any `snowflake_scan` / `query_string` lines from the rendered plan
+# (i.e. the actual SQL DuckDB sent upstream). Off by default — EXPLAIN
+# ANALYZE re-executes the query (~2x latency). Enable per-tenant during
+# debugging.
+hybrid_profile_attach_queries = false
+
+# Periodic refresh of the DuckDB Snowflake extension's per-table schema
+# cache. Lazy: at most one connection per interval pays the
+# `DETACH IF EXISTS sf_link; ATTACH ...` cost (CAS-guarded). Bounds
+# upstream-schema-evolution staleness without a proxy restart. 0 = off.
+hybrid_attach_refresh_interval = "1h"
+
+# Statement-level result cache. TTL > 0 enables; identical hybrid
+# queries within the window skip Snowflake entirely. Per-table
+# invalidation cascades from sync writes.
+hybrid_fragment_cache_ttl         = "0s"
+hybrid_fragment_cache_max_entries = 256
+
 [metrics]
 listen     = "0.0.0.0:9090"
 log_format = "json"          # json | pretty
@@ -124,6 +180,23 @@ include = [
 # applied automatically; anything here is additive.
 exclude = [
     # "ANALYTICS.LEGACY.*",
+]
+
+# ── Hybrid (dual-execution) federation — declared-remote tables ──
+# Tables matching these globs are NEVER synced. Queries that touch
+# them are routed through the dual-execution router (when
+# `[router].hybrid_execution = true` below). The lake portion runs
+# locally; the remote portion either streams via the attached
+# Snowflake catalog (single-scan nodes → Attach) or is staged as a
+# TEMP TABLE built from a Snowflake-side fragment query (multi-scan
+# subtrees → Materialize).
+#
+# Precedence: `exclude` > `remote` > `include`. A defensive
+# `exclude = ["SNOWFLAKE.*"]` still bites under a permissive
+# `remote = ["*.*.*"]`.
+remote = [
+    # "WAREHOUSE.HUGE_FACT_*",         # never sync — federate every query
+    # "RAW.EVENTS.*",                  # too big to mirror; live-read instead
 ]
 
 [sync.lazy]
