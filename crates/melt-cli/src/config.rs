@@ -20,7 +20,38 @@ pub struct MeltConfig {
     pub metrics: MetricsConfig,
     #[serde(default)]
     pub sync: SyncConfig,
+    /// Parsed but read only via `MeltConfig::peek_max_blocking_threads`,
+    /// which deserializes a smaller view before the runtime is built.
+    /// Keeping the field on the full struct means an operator can set
+    /// it once and either entry point (early peek or full load) sees
+    /// the value without surprise warnings about unknown TOML keys.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub runtime: RuntimeConfig,
     pub backend: BackendTable,
+}
+
+/// Tunables for the Tokio runtime built in `main`. Optional —
+/// defaults are picked in `crate::runtime_init` so this block can be
+/// omitted entirely from `melt.toml`.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct RuntimeConfig {
+    /// Cap on Tokio's blocking thread pool. Default `64`. See
+    /// `docs/internal/KNOWN_ISSUES.md` § KI-001 — timed-out DuckDB
+    /// queries pin their `spawn_blocking` thread, so we cap below
+    /// the Tokio default of `512` to bound the worst-case pin count.
+    /// `MELT_MAX_BLOCKING_THREADS` overrides this for ad-hoc tuning.
+    pub max_blocking_threads: Option<usize>,
+}
+
+/// Minimal view of `melt.toml` used by the early runtime builder
+/// before `MeltConfig::load` runs. We only need the `[runtime]`
+/// block; loading the full config requires backend selection, which
+/// we don't want to force on operators just to set a thread cap.
+#[derive(Debug, Deserialize, Default)]
+struct RuntimeConfigPeek {
+    #[serde(default)]
+    runtime: RuntimeConfig,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -197,5 +228,19 @@ impl MeltConfig {
     #[allow(dead_code)]
     pub fn policy(&self) -> &PolicyConfig {
         &self.snowflake.policy
+    }
+
+    /// Best-effort read of `[runtime].max_blocking_threads` from a
+    /// `melt.toml` without loading the rest of the config.
+    ///
+    /// Returns `None` when the file is missing, can't be parsed, or
+    /// doesn't set the field. Errors are swallowed deliberately:
+    /// `bootstrap server` and `bootstrap client` run before any
+    /// config exists, and the runtime builder must still come up
+    /// with a sane default.
+    pub fn peek_max_blocking_threads(path: &Path) -> Option<usize> {
+        let raw = fs::read_to_string(path).ok()?;
+        let peek: RuntimeConfigPeek = toml::from_str(&raw).ok()?;
+        peek.runtime.max_blocking_threads
     }
 }
