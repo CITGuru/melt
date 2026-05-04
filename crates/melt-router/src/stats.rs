@@ -12,6 +12,8 @@ const POLICY_CACHE_CAP: usize = 4096;
 const ESTIMATE_CACHE_CAP: usize = 1024;
 const MISSING_TTL: Duration = Duration::from_secs(30);
 
+type EstimateCache = Mutex<LruCache<Vec<TableRef>, (Vec<u64>, Instant)>>;
+
 /// Three TTL caches keep routing latency in the sub-millisecond
 /// range. All entries time-out so newly-synced tables are picked up
 /// without manual invalidation.
@@ -22,7 +24,7 @@ pub struct Cache {
 
     tables: Mutex<LruCache<TableRef, (bool, Instant)>>,
     policy: Mutex<LruCache<TableRef, (Option<String>, Instant)>>,
-    estimates: Mutex<LruCache<Vec<TableRef>, (Vec<u64>, Instant)>>,
+    estimates: EstimateCache,
 }
 
 impl Cache {

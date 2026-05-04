@@ -37,6 +37,7 @@ reqwest = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 parking_lot = { workspace = true }
+humantime-serde = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }

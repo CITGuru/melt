@@ -73,9 +73,10 @@ fn session() -> SessionInfo {
 /// Router config with hybrid_execution turned ON. Phase-0 flag-off
 /// behaviour is covered by `tests/decide.rs::*`.
 fn hybrid_cfg() -> RouterConfig {
-    let mut c = RouterConfig::default();
-    c.hybrid_execution = true;
-    c
+    RouterConfig {
+        hybrid_execution: true,
+        ..RouterConfig::default()
+    }
 }
 
 fn sf_cfg() -> SnowflakeConfig {

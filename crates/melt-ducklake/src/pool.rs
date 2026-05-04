@@ -2,7 +2,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use deadpool::managed::{self, Manager, Metrics, RecycleResult};
+use deadpool::managed::{self, Manager, Metrics, RecycleResult, Timeouts};
+use deadpool::Runtime;
 use duckdb::Connection;
 use melt_core::{MeltError, Result};
 use parking_lot::Mutex as SyncMutex;
@@ -190,6 +191,13 @@ pub struct DuckLakePool {
     /// no extra setup was configured (hybrid Attach not requested);
     /// `Some(false)` once any connection's extra setup failed.
     extra_setup_ok: Option<Arc<AtomicBool>>,
+    /// Wait-for-checkout timeout applied to every `read()`. Set from
+    /// `[backend.ducklake].reader_checkout_timeout`. The router's
+    /// Lake-failure-to-passthrough fallback (in `melt-proxy`) absorbs
+    /// the resulting `PoolError::Timeout` pre-first-byte, so a
+    /// saturated reader pool sheds load to Snowflake instead of
+    /// queueing indefinitely. KI-001 mitigation #2.
+    reader_checkout_timeout: Duration,
 }
 
 impl DuckLakePool {
@@ -217,6 +225,7 @@ impl DuckLakePool {
         let shared_flag = Arc::new(AtomicBool::new(true));
         let extra_setup_ok = extra_setup_sql.is_some().then(|| shared_flag.clone());
         let shared_last_refresh = Arc::new(AtomicU64::new(0));
+        let reader_checkout_timeout = cfg.reader_checkout_timeout;
 
         let mut manager = DuckDBManager::new_with_extra_sql_and_flag(
             &cfg,
@@ -226,8 +235,12 @@ impl DuckLakePool {
         if let Some((sql, interval)) = refresh.clone() {
             manager = manager.with_refresh(sql, interval, shared_last_refresh.clone());
         }
+        // `runtime(Tokio1)` is required because `timeout_get` uses
+        // `tokio::time::timeout` internally; deadpool refuses to apply
+        // a wait timeout otherwise.
         let readers = ReaderPool::builder(manager)
             .max_size(cfg.reader_pool_size.max(1))
+            .runtime(Runtime::Tokio1)
             .build()
             .map_err(|e| MeltError::backend(format!("reader pool: {e}")))?;
 
@@ -241,12 +254,24 @@ impl DuckLakePool {
             readers,
             writer: Arc::new(tokio::sync::Mutex::new(writer)),
             extra_setup_ok,
+            reader_checkout_timeout,
         })
     }
 
+    /// Check out a reader connection with a bounded wait. Backed by
+    /// `deadpool::Pool::timeout_get` so callers fail fast under pool
+    /// saturation instead of queueing indefinitely on
+    /// `Pool::get().await`. The router's Lake-failure-to-passthrough
+    /// fallback in `melt-proxy::execution::run` absorbs the timeout
+    /// pre-first-byte. KI-001 mitigation #2.
     pub async fn read(&self) -> Result<deadpool::managed::Object<DuckDBManager>> {
+        let timeouts = Timeouts {
+            wait: Some(self.reader_checkout_timeout),
+            create: None,
+            recycle: None,
+        };
         self.readers
-            .get()
+            .timeout_get(&timeouts)
             .await
             .map_err(|e| MeltError::backend(format!("reader checkout: {e}")))
     }
@@ -328,6 +353,7 @@ mod tests {
             },
             reader_pool_size: 4,
             writer_pool_size: 1,
+            reader_checkout_timeout: Duration::from_secs(5),
         };
         let sql = build_setup_sql(&cfg);
         assert!(sql.contains("INSTALL ducklake"));
@@ -351,6 +377,7 @@ mod tests {
             },
             reader_pool_size: 4,
             writer_pool_size: 1,
+            reader_checkout_timeout: Duration::from_secs(5),
         };
         let sql = build_setup_sql(&cfg);
         assert!(sql.contains("REGION    'eu-west-1'"));
@@ -365,6 +392,7 @@ mod tests {
             s3: melt_core::S3Config::default(),
             reader_pool_size: 4,
             writer_pool_size: 1,
+            reader_checkout_timeout: Duration::from_secs(5),
         };
         let sql = build_setup_sql(&cfg);
         assert!(!sql.contains("CREATE OR REPLACE SECRET"));
