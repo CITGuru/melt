@@ -20,6 +20,7 @@ Durations accept any [`humantime`](https://docs.rs/humantime) string (`"30s"`, `
 - [`[snowflake.policy]`](#snowflakepolicy) — row-access / masking policy handling
 - [`[router]`](#router) — Lake vs. Snowflake routing knobs
 - [`[metrics]`](#metrics) — admin listener (metrics, healthz, reload endpoint)
+- [`[runtime]`](#runtime) — Tokio runtime tunables (blocking-thread cap)
 - [`[sync]`](#sync) — what Melt mirrors and how
 - [`[sync.lazy]`](#synclazy) — discovery tunables
 - [`[sync.views]`](#syncviews) — view-aware sync (decomposition vs. stream-on-view)
@@ -128,6 +129,8 @@ Mode behavior:
 
 When enabled, the router can emit `Route::Hybrid` for queries that touch declared-remote tables (matched by `[sync].remote` globs) — running the lake-resident parts locally on DuckDB and federating the Snowflake-resident parts via the community Snowflake DuckDB extension (Attach strategy) or, for collapsed multi-scan subtrees, by staging the result of a fragment SQL into a DuckDB `TEMP TABLE` (Materialize strategy). Off by default; flip `hybrid_execution = true` and pair with `[sync].remote` patterns to opt in.
 
+For when to enable, the rollout playbook, debugging parity mismatches, and the comment-hint syntax, see the [dual execution guide](guides/dual-execution.md).
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `hybrid_execution` | bool | `false` | Master switch. When false, Remote-classified tables passthrough as today (safe default). |
@@ -176,6 +179,20 @@ Admin HTTP server: `/metrics`, `/healthz`, `/readyz`, `POST /admin/reload`.
 - Either set → `POST /admin/reload` requires `Authorization: Bearer <token>`.
 
 Comparison uses constant-time byte equality.
+
+---
+
+## `[runtime]`
+
+Tokio runtime tunables. Optional table — omit it entirely and Melt picks the defaults below.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `max_blocking_threads` | usize | `64` | Cap on Tokio's blocking thread pool. The pool is what `tokio::task::spawn_blocking` (and therefore every DuckDB query) runs on. Tokio's own default is `512`; Melt caps lower so a thundering herd of timed-out-but-still-running queries can't pin every thread. See `docs/internal/KNOWN_ISSUES.md` § KI-001. |
+
+**Resolution order** (first non-zero wins): `MELT_MAX_BLOCKING_THREADS` env var → `[runtime].max_blocking_threads` in config → built-in default `64`. The env var lets operators dial up for a single deployment without editing the committed config; an invalid or zero value is logged and ignored.
+
+This block is read by a small early peek in `crates/melt-cli/src/main.rs` *before* `MeltConfig::load` runs, because the runtime has to be built before any async code can execute. Bootstrap subcommands (`melt bootstrap server` / `melt bootstrap client`) run before any config exists and always use the default.
 
 ---
 
@@ -236,8 +253,9 @@ Postgres catalog + S3 data files, accessed through DuckDB's `ducklake` extension
 |---|---|---|---|---|
 | `catalog_url` | string | yes | — | Postgres connection string, e.g. `"postgres://melt:secret@db/melt_catalog"`. Doubles as the control-plane catalog (sync state, policy markers). |
 | `data_path` | string | yes | — | Where DuckLake writes Parquet + snapshots, e.g. `"s3://acme-melt/ducklake/"`. |
-| `reader_pool_size` | usize | no | `16` | Parallel DuckDB reader connections. |
+| `reader_pool_size` | usize | no | `8` | Parallel DuckDB reader connections. |
 | `writer_pool_size` | usize | no | `1` | DuckLake enforces single-writer — keep this at 1. |
+| `reader_checkout_timeout` | duration | no | `"5s"` | Max time a query waits for a free reader connection before failing fast. The router's Lake-failure-to-passthrough fallback absorbs the timeout pre-first-byte, so a saturated pool sheds load to Snowflake instead of queueing indefinitely. Pairs with KI-001 in `docs/internal/KNOWN_ISSUES.md`. |
 
 ## `[backend.iceberg]`
 
@@ -249,7 +267,8 @@ Iceberg REST / Glue catalog + S3 data files, accessed through DuckDB's `iceberg`
 | `warehouse` | string | yes | — | Iceberg warehouse root URI, e.g. `"s3://acme-melt/iceberg/"` |
 | `rest_uri` | string | when `catalog = "rest"` or `"polaris"` | — | Iceberg REST catalog endpoint |
 | `control_catalog_url` | Postgres URL | when sync enabled | — | Postgres control plane (sync state, policy markers). Typically points at the same Postgres as a parallel DuckLake deployment. Empty → sync runs headless and auto-discovery is disabled. |
-| `reader_pool_size` | usize | no | `16` | Parallel DuckDB reader connections. |
+| `reader_pool_size` | usize | no | `8` | Parallel DuckDB reader connections. |
+| `reader_checkout_timeout` | duration | no | `"5s"` | Max time a query waits for a free reader connection before failing fast. The router's Lake-failure-to-passthrough fallback absorbs the timeout pre-first-byte. See KI-001 in `docs/internal/KNOWN_ISSUES.md`. |
 
 Environment overrides (for REST catalog auth):
 
