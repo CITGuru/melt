@@ -1,6 +1,6 @@
 # Contributing
 
-This is the code-organization policy for Powa repos (openduck, melt, pawrly).
+This is the code-organization policy for melt.
 It applies to all contributors — humans and agents.
 
 ## Workflow
