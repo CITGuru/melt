@@ -11,6 +11,16 @@
 <meta property="og:url" content="https://melt.dev" />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ff6a3d'/%3E%3C/svg%3E" />
+
+<!-- Site config: edit these once accounts are provisioned. See site/readme.md. -->
+<meta name="melt:plausible-domain" content="melt.dev" />
+<meta name="melt:waitlist-endpoint" content="https://submit-form.com/__FORMSPARK_ID__" />
+<meta name="melt:outbound-ref" content="melt-site" />
+
+<!-- Plausible analytics. tagged-events extension reads data-event-* attributes;
+     outbound-links extension auto-tracks external clicks. -->
+<script defer data-domain="melt.dev" src="https://plausible.io/js/script.tagged-events.outbound-links.js"></script>
+<script>window.plausible=window.plausible||function(){(window.plausible.q=window.plausible.q||[]).push(arguments)};</script>
 <style>
   :root {
     --bg: #ffffff;
@@ -128,6 +138,56 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .btn:hover { transform: translateY(-1px); }
   .btn.primary:hover { border-color: var(--accent); }
+
+  .waitlist {
+    margin-top: 28px; max-width: 520px;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch;
+  }
+  .waitlist input[type="email"] {
+    flex: 1 1 240px; min-width: 0;
+    padding: 12px 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--fg); font: inherit; font-size: 15px;
+  }
+  .waitlist input[type="email"]:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .waitlist button[type="submit"] {
+    cursor: pointer; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff;
+    padding: 12px 20px; border-radius: 8px;
+    font: inherit; font-weight: 600; font-size: 15px;
+  }
+  .waitlist button[type="submit"][aria-busy="true"] { opacity: 0.7; cursor: progress; }
+  .waitlist .note {
+    flex-basis: 100%; color: var(--muted); font-size: 13px; margin-top: 6px;
+  }
+  .waitlist-status {
+    margin-top: 12px; font-size: 14.5px; min-height: 1.4em;
+  }
+  .waitlist-status[data-state="success"] { color: #1b8754; }
+  .waitlist-status[data-state="error"] { color: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    .waitlist-status[data-state="success"] { color: #5fd3a1; }
+    .waitlist-status[data-state="error"] { color: #ff8b80; }
+  }
+
+  .codeblock { position: relative; }
+  .codeblock .copy {
+    position: absolute; top: 10px; right: 10px;
+    cursor: pointer; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg-soft);
+    padding: 4px 10px; border-radius: 6px;
+    font: inherit; font-size: 12px; font-weight: 600;
+    opacity: 0.85;
+  }
+  .codeblock .copy:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+  .codeblock .copy[data-copied="true"] { color: var(--accent); border-color: var(--accent); }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
 
   .compat {
     border-top: 1px solid var(--border);
@@ -255,7 +315,7 @@
 <div class="topbar">
   <span class="pill">New</span>
   Dual execution is now opt-in for declared-remote tables.
-  <a href="https://github.com/CITGuru/melt/blob/main/docs/guides/dual-execution.md">Read the guide ›</a>
+  <a href="https://github.com/CITGuru/melt/blob/main/docs/guides/dual-execution.md" data-event="docs_click" data-event-target="topbar_dual_execution">Read the guide ›</a>
 </div>
 
 <nav class="site">
@@ -265,9 +325,9 @@
       <li><a href="#how">How it works</a></li>
       <li><a href="#routes">Routes</a></li>
       <li><a href="#start">Get started</a></li>
-      <li><a href="https://github.com/CITGuru/melt/blob/main/docs/overview.md">Docs</a></li>
+      <li><a href="https://github.com/CITGuru/melt/blob/main/docs/overview.md" data-event="docs_click" data-event-target="nav_docs">Docs</a></li>
     </ul>
-    <a class="ghbtn" href="https://github.com/CITGuru/melt">GitHub ↗</a>
+    <a class="ghbtn" href="https://github.com/CITGuru/melt" data-event="hero_cta_click" data-event-target="nav_github">GitHub ↗</a>
   </div>
 </nav>
 
@@ -281,9 +341,18 @@
       Change one connection string.
     </p>
     <div class="cta">
-      <a class="btn primary" href="#start">Get started</a>
-      <a class="btn" href="https://github.com/CITGuru/melt">View on GitHub ↗</a>
+      <a class="btn primary" href="#start" data-event="hero_cta_click" data-event-target="get_started">Get started</a>
+      <a class="btn" href="https://github.com/CITGuru/melt" data-event="hero_cta_click" data-event-target="github">View on GitHub ↗</a>
     </div>
+
+    <form class="waitlist" id="waitlist-form" novalidate>
+      <label for="waitlist-email" class="visually-hidden">Email address</label>
+      <input id="waitlist-email" name="email" type="email" required autocomplete="email"
+             placeholder="you@company.com" />
+      <button type="submit">Join the waitlist</button>
+      <p class="note">Launch updates. No spam. One email per release.</p>
+    </form>
+    <div id="waitlist-status" class="waitlist-status" role="status" aria-live="polite"></div>
 
     <div class="compat">
       <div class="label">Works with your existing Snowflake stack</div>
@@ -475,7 +544,14 @@ plan:
     <h2>Up and running in 60 seconds</h2>
     <p class="sub">No Snowflake credentials required to inspect routing decisions.</p>
 
-<pre><code># Bring up melt + Postgres (DuckLake catalog) + MinIO (S3)
+<div class="codeblock">
+<pre id="snippet-clone"><code># Clone and enter the repo
+git clone https://github.com/CITGuru/melt.git
+cd melt</code></pre>
+</div>
+
+<div class="codeblock" style="margin-top: 16px;">
+<pre id="snippet-compose"><code># Bring up melt + Postgres (DuckLake catalog) + MinIO (S3)
 docker compose up --build
 
 # Inspect routing for any SQL — no infra required
@@ -483,10 +559,12 @@ docker compose run --rm melt route "SELECT * FROM analytics.public.events"
 
 # Backend / sync / policy summary
 docker compose run --rm melt status</code></pre>
+</div>
 
     <p style="margin: 24px 0 12px;">Then point any Snowflake driver at <code>127.0.0.1:8443</code>:</p>
 
-<pre><code>import snowflake.connector
+<div class="codeblock">
+<pre id="snippet-driver"><code>import snowflake.connector
 
 conn = snowflake.connector.connect(
     user="u", password="p",
@@ -497,6 +575,7 @@ conn = snowflake.connector.connect(
 )
 conn.cursor().execute("SELECT IFF(1 > 0, 'yes', 'no')").fetchall()
 # → [('yes',)]</code></pre>
+</div>
   </div>
 </section>
 
@@ -505,8 +584,8 @@ conn.cursor().execute("SELECT IFF(1 > 0, 'yes', 'no')").fetchall()
     <h2>Stop paying Snowflake for queries DuckDB can answer.</h2>
     <p class="sub">Self-hosted, Apache-2.0, ~15 minutes to a working proxy.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/CITGuru/melt/blob/main/docs/guides/quickstart-docker.md">Docker quickstart</a>
-      <a class="btn" href="https://github.com/CITGuru/melt">View on GitHub ↗</a>
+      <a class="btn primary" href="https://github.com/CITGuru/melt/blob/main/docs/guides/quickstart-docker.md" data-event="docs_click" data-event-target="docker_quickstart">Docker quickstart</a>
+      <a class="btn" href="https://github.com/CITGuru/melt" data-event="hero_cta_click" data-event-target="github_closing">View on GitHub ↗</a>
     </div>
   </div>
 </section>
@@ -515,28 +594,212 @@ conn.cursor().execute("SELECT IFF(1 > 0, 'yes', 'no')").fetchall()
   <div class="wrap row">
     <span>Apache-2.0 licensed.</span>
     <span>
-      <a href="https://github.com/CITGuru/melt/blob/main/docs/overview.md">Docs</a> ·
-      <a href="https://github.com/CITGuru/melt/blob/main/docs/configuration.md">Config</a> ·
-      <a href="https://github.com/CITGuru/melt/blob/main/docs/guides/dual-execution.md">Dual execution</a> ·
-      <a href="https://github.com/CITGuru/melt">GitHub</a>
+      <a href="https://github.com/CITGuru/melt/blob/main/docs/overview.md" data-event="docs_click" data-event-target="overview">Docs</a> ·
+      <a href="https://github.com/CITGuru/melt/blob/main/docs/configuration.md" data-event="docs_click" data-event-target="configuration">Config</a> ·
+      <a href="https://github.com/CITGuru/melt/blob/main/docs/guides/dual-execution.md" data-event="docs_click" data-event-target="dual_execution">Dual execution</a> ·
+      <a href="https://github.com/CITGuru/melt" data-event="docs_click" data-event-target="github_footer">GitHub</a>
     </span>
   </div>
 </footer>
 
 <script>
-  (function () {
-    var root = document.getElementById('tabs');
-    if (!root) return;
-    var buttons = root.querySelectorAll('.strip button');
-    var panels = root.querySelectorAll('.panel');
+(function () {
+  // ------- 0. Tabs (existing behavior) -------
+  var tabsRoot = document.getElementById('tabs');
+  if (tabsRoot) {
+    var buttons = tabsRoot.querySelectorAll('.strip button');
+    var panels = tabsRoot.querySelectorAll('.panel');
     buttons.forEach(function (btn) {
       btn.addEventListener('click', function () {
         var name = btn.getAttribute('data-tab');
         buttons.forEach(function (b) { b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); });
         panels.forEach(function (p) { p.setAttribute('data-active', p.getAttribute('data-tab') === name ? 'true' : 'false'); });
+        track('routes_tab_view', { tab: name });
       });
     });
-  })();
+  }
+
+  // ------- 1. UTM capture + persistence -------
+  // Read on landing → sessionStorage (per-tab) + localStorage (sticky, 30-day TTL).
+  // Never store anything that could be PII (no emails, no free-text).
+  var UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+  var STORAGE_KEY = 'melt.utm';
+  var TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+  function readUtmFromUrl() {
+    try {
+      var p = new URLSearchParams(window.location.search);
+      var out = {};
+      var found = false;
+      UTM_KEYS.forEach(function (k) {
+        var v = p.get(k);
+        if (v) { out[k] = v.slice(0, 200); found = true; }
+      });
+      return found ? out : null;
+    } catch (_) { return null; }
+  }
+
+  function readStored(store) {
+    try {
+      var raw = store && store.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.utm) return null;
+      if (parsed.ts && (Date.now() - parsed.ts) > TTL_MS) {
+        store.removeItem(STORAGE_KEY);
+        return null;
+      }
+      return parsed.utm;
+    } catch (_) { return null; }
+  }
+
+  function writeStored(store, utm) {
+    try { store && store.setItem(STORAGE_KEY, JSON.stringify({ utm: utm, ts: Date.now() })); } catch (_) {}
+  }
+
+  var freshUtm = readUtmFromUrl();
+  var sessionUtm = readStored(window.sessionStorage);
+  var stickyUtm = readStored(window.localStorage);
+  // First-touch wins for the sticky UTM; fresh always wins for current session.
+  if (freshUtm) {
+    writeStored(window.sessionStorage, freshUtm);
+    if (!stickyUtm) writeStored(window.localStorage, freshUtm);
+  }
+  var currentUtm = freshUtm || sessionUtm || stickyUtm || {};
+
+  // Emit landing_view exactly once per session, with the full UTM payload.
+  if (!sessionStorage.getItem('melt.landing_view_seen')) {
+    try { sessionStorage.setItem('melt.landing_view_seen', '1'); } catch (_) {}
+    track('landing_view', currentUtm);
+  }
+
+  // ------- 2. Tracking helper (forwards UTM to every event) -------
+  function track(name, extraProps) {
+    var props = {};
+    UTM_KEYS.forEach(function (k) { if (currentUtm[k]) props[k] = currentUtm[k]; });
+    if (extraProps) {
+      Object.keys(extraProps).forEach(function (k) {
+        if (extraProps[k] != null) props[k] = String(extraProps[k]).slice(0, 200);
+      });
+    }
+    try { window.plausible(name, { props: props }); } catch (_) {}
+  }
+
+  // Manual click tracking for [data-event] elements. The tagged-events Plausible
+  // extension also auto-handles these, but firing manually lets us inject UTM props.
+  document.querySelectorAll('[data-event]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var name = el.getAttribute('data-event');
+      var target = el.getAttribute('data-event-target') || '';
+      track(name, { target: target, href: el.getAttribute('href') || '' });
+    });
+  });
+
+  // ------- 3. Outbound link rewriting (?ref= on git/docs links) -------
+  var REF = (document.querySelector('meta[name="melt:outbound-ref"]') || {}).content || 'melt-site';
+  function rewriteOutbound() {
+    var anchors = document.querySelectorAll('a[href^="https://github.com/"]');
+    anchors.forEach(function (a) {
+      try {
+        var u = new URL(a.href);
+        if (!u.searchParams.has('ref')) u.searchParams.set('ref', REF);
+        a.href = u.toString();
+      } catch (_) {}
+    });
+  }
+  rewriteOutbound();
+
+  // ------- 4. git clone / quickstart copy buttons -------
+  document.querySelectorAll('.codeblock').forEach(function (block) {
+    var pre = block.querySelector('pre');
+    if (!pre) return;
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'copy';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy snippet');
+    block.appendChild(btn);
+    btn.addEventListener('click', function () {
+      var text = pre.innerText;
+      var done = function () {
+        btn.textContent = 'Copied'; btn.setAttribute('data-copied', 'true');
+        setTimeout(function () {
+          btn.textContent = 'Copy'; btn.removeAttribute('data-copied');
+        }, 1500);
+      };
+      var snippetId = pre.id || 'snippet';
+      var eventName = /clone/i.test(text) ? 'git_clone_copy' : 'snippet_copy';
+      track(eventName, { snippet: snippetId });
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, done);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta); done();
+      }
+    });
+  });
+
+  // ------- 5. Waitlist form -------
+  var form = document.getElementById('waitlist-form');
+  var status = document.getElementById('waitlist-status');
+  var endpointMeta = document.querySelector('meta[name="melt:waitlist-endpoint"]');
+  var endpoint = endpointMeta ? endpointMeta.content : '';
+
+  function setStatus(state, message) {
+    if (!status) return;
+    status.textContent = message || '';
+    if (state) status.setAttribute('data-state', state); else status.removeAttribute('data-state');
+  }
+
+  if (form && status) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var emailInput = form.querySelector('input[name="email"]');
+      var submitBtn = form.querySelector('button[type="submit"]');
+      var email = (emailInput.value || '').trim();
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        setStatus('error', 'Please enter a valid email address.');
+        return;
+      }
+
+      // Build payload. UTMs included as metadata; email is PII and only sent to the form provider.
+      var payload = { email: email, source: 'melt-site', referrer: document.referrer || '' };
+      UTM_KEYS.forEach(function (k) { if (currentUtm[k]) payload[k] = currentUtm[k]; });
+
+      submitBtn.setAttribute('aria-busy', 'true');
+      setStatus('', '');
+
+      // Guard against the placeholder endpoint — pretend-success in dev so the UI flow is testable
+      // but make the issue obvious in the console.
+      if (!endpoint || /__FORMSPARK_ID__/.test(endpoint)) {
+        console.warn('[waitlist] Form endpoint not configured; submission not sent. Update meta[name="melt:waitlist-endpoint"].');
+        submitBtn.removeAttribute('aria-busy');
+        setStatus('error', 'Waitlist is not yet wired up. Please check back shortly.');
+        return;
+      }
+
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(function (res) {
+        submitBtn.removeAttribute('aria-busy');
+        if (res.ok) {
+          form.reset();
+          setStatus('success', "Thanks — you're on the waitlist. We'll only email on releases.");
+          // Do NOT include the email in the analytics event — email is PII, keep it scoped to the form provider.
+          track('waitlist_signup', { has_utm: Object.keys(currentUtm).length > 0 ? 'yes' : 'no' });
+        } else {
+          setStatus('error', "Couldn't sign you up. Please try again in a moment.");
+        }
+      }).catch(function () {
+        submitBtn.removeAttribute('aria-busy');
+        setStatus('error', "Couldn't reach the waitlist. Check your connection and retry.");
+      });
+    });
+  }
+})();
 </script>
 
 </body>
