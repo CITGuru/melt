@@ -263,12 +263,6 @@ impl TableSourceRegistry {
         Self::default()
     }
 
-    pub fn from_iter<I: IntoIterator<Item = TableRef>>(it: I) -> Self {
-        Self {
-            remote: it.into_iter().collect(),
-        }
-    }
-
     pub fn register(&mut self, table: TableRef) {
         self.remote.insert(table);
     }
@@ -291,6 +285,14 @@ impl TableSourceRegistry {
 
     pub fn iter(&self) -> impl Iterator<Item = &TableRef> {
         self.remote.iter()
+    }
+}
+
+impl FromIterator<TableRef> for TableSourceRegistry {
+    fn from_iter<I: IntoIterator<Item = TableRef>>(iter: I) -> Self {
+        Self {
+            remote: iter.into_iter().collect(),
+        }
     }
 }
 

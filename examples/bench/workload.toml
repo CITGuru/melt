@@ -1,0 +1,97 @@
+# Melt bench harness — synthetic agent-driven workload.
+#
+# This file defines the canonical "agent-shaped" mix used to estimate
+# queries-per-dollar deltas for the Melt v0.1 launch. The shape of the
+# mix matches the framing in the project readme: lots of small filters
+# and selective joins (the kind of SQL an LLM agent emits while
+# iterating on a question), with a thin tail of aggregations.
+#
+# Override any value via env or command-line flag — see the README.
+
+[bench]
+runs        = 100      # total queries per path (after warmup)
+concurrency = 4        # parallel workers per path
+warmup      = 10       # queries to discard before measuring
+seed        = 7        # RNG seed for query selection (reproducibility)
+
+[cost]
+# Flat $/credit assumption. Snowflake list price for Standard edition is
+# ~$3/credit; Enterprise ~$4. Override with --credit-rate or BENCH_CREDIT_RATE.
+credit_rate_usd = 3.00
+
+# Used when the warehouse size for a Snowflake-routed query isn't reported
+# (e.g. the connection didn't pin a warehouse, or QUERY_HISTORY isn't queried
+# back). Pick the size that most accurately reflects the customer's status
+# quo — the readme assumes a single shared LARGE warehouse.
+default_warehouse_size = "L"
+
+# Lake-routed queries don't burn Snowflake credits — they run locally on
+# DuckDB. We attribute zero Snowflake cost to them. Compute cost on the
+# Melt host is real but small and out of scope for v1.
+lake_snowflake_credits_per_query = 0.0
+
+# Snowflake credits/hour by warehouse size (matches WAREHOUSE_MANAGEMENT.md
+# §16 — every step doubles). Inline so we can keep simple keys above.
+warehouse_credits_per_hour = { XS = 1, S = 2, M = 4, L = 8, XL = 16 }
+
+# Synthetic-mode latency model (used when --synthetic is passed and no real
+# Snowflake account is wired in). Numbers are illustrative defaults sourced
+# from internal observations of small-query agent traffic; override per run.
+[synthetic]
+snowflake_p50_ms = 1800   # cold-warm small-query latency on a shared L
+snowflake_p95_ms = 6500
+lake_p50_ms      = 90     # DuckDB on warm Parquet in MinIO
+lake_p95_ms      = 320
+# Fraction of queries Melt is expected to route to the lake. The rest fall
+# through to Snowflake passthrough at the same cost as the baseline.
+lake_route_fraction = 0.85
+
+# --- Query mix -------------------------------------------------------------
+#
+# Each entry: weight (relative probability), sql template, and the route we
+# expect Melt to choose. The expected_route is recorded alongside the
+# observed route so a regression in the router shows up as a mismatch in
+# the summary. SQL is kept Snowflake-dialect — Melt translates on the way
+# down to DuckDB.
+
+[[query]]
+name           = "small_filter"
+weight         = 60
+expected_route = "lake"
+sql = "SELECT id, value, ts FROM analytics.public.events WHERE user_id = 42 LIMIT 50"
+
+[[query]]
+name           = "selective_join"
+weight         = 25
+expected_route = "lake"
+sql = """
+SELECT e.id, u.name, e.value
+FROM analytics.public.events e
+JOIN analytics.public.users  u ON e.user_id = u.id
+WHERE u.region = 'us-east-1'
+LIMIT 100
+"""
+
+[[query]]
+name           = "daily_agg"
+weight         = 12
+expected_route = "lake"
+sql = """
+SELECT DATE_TRUNC('day', ts) AS d, COUNT(*) AS n
+FROM analytics.public.events
+WHERE ts > DATEADD(day, -7, CURRENT_TIMESTAMP())
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[query]]
+name           = "topn_users"
+weight         = 3
+expected_route = "lake"
+sql = """
+SELECT user_id, COUNT(*) AS n
+FROM analytics.public.events
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 100
+"""

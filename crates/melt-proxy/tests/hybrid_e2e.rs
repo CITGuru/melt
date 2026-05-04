@@ -110,16 +110,10 @@ impl StorageBackend for MockHybridBackend {
         // EXPLAIN ANALYZE) — the proxy drains them but doesn't render
         // the rows.
         if sql.starts_with("CREATE TEMP TABLE") {
-            let schema = Arc::new(Schema::new(vec![Field::new(
-                "ok",
-                DataType::Int32,
-                false,
-            )]));
+            let schema = Arc::new(Schema::new(vec![Field::new("ok", DataType::Int32, false)]));
             let arr = Int32Array::from(vec![1]);
-            let batch =
-                RecordBatch::try_new(schema, vec![Arc::new(arr)]).map_err(|e| {
-                    MeltError::backend(format!("test fixture build: {e}"))
-                })?;
+            let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)])
+                .map_err(|e| MeltError::backend(format!("test fixture build: {e}")))?;
             return Ok(Box::pin(futures::stream::iter(vec![Ok(batch)])));
         }
 
@@ -184,8 +178,10 @@ fn build_state_with_hybrid(
     let sessions = Arc::new(SessionStore::new(limits.clone()));
     let results = ResultStore::new(limits.clone());
 
-    let mut router_cfg = RouterConfig::default();
-    router_cfg.hybrid_execution = true;
+    let mut router_cfg = RouterConfig {
+        hybrid_execution: true,
+        ..RouterConfig::default()
+    };
     cfg_tweak(&mut router_cfg);
     let router_cache = Arc::new(Cache::new(&router_cfg));
 
@@ -252,7 +248,9 @@ fn bearer(token: &str) -> HeaderMap {
 async fn response_json(resp: axum::response::Response) -> serde_json::Value {
     let (parts, body) = resp.into_parts();
     let bytes = to_bytes(body, usize::MAX).await.unwrap();
-    let body_str = std::str::from_utf8(&bytes).unwrap_or("<non-utf8>").to_string();
+    let body_str = std::str::from_utf8(&bytes)
+        .unwrap_or("<non-utf8>")
+        .to_string();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
         panic!(
             "non-JSON response body (status={}): {e}; body={body_str}",
@@ -277,11 +275,8 @@ async fn hybrid_single_remote_table_runs_local_sql_only() {
     let backend = MockHybridBackend::new(vec![]);
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |_| {},
-    );
+    let state =
+        build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |_| {});
     seed_session(&state, "tk");
 
     let body = Bytes::from(r#"{"statement": "SELECT id, name FROM REMOTE.PUB.USERS"}"#);
@@ -317,11 +312,7 @@ async fn hybrid_multi_remote_query_stages_temp_table_then_runs_local_sql() {
     let backend = MockHybridBackend::new(vec![]);
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.*"]),
-        |_| {},
-    );
+    let state = build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.*"]), |_| {});
     seed_session(&state, "tk");
 
     let body = Bytes::from(
@@ -358,11 +349,8 @@ async fn hybrid_hint_route_snowflake_skips_backend() {
     let backend = MockHybridBackend::new(vec![]);
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |_| {},
-    );
+    let state =
+        build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |_| {});
     seed_session(&state, "tk");
 
     let body = Bytes::from(
@@ -395,16 +383,12 @@ async fn hybrid_hint_route_lake_overrides_remote_match() {
     let backend = MockHybridBackend::new(vec![]);
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |_| {},
-    );
+    let state =
+        build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |_| {});
     seed_session(&state, "tk");
 
-    let body = Bytes::from(
-        r#"{"statement": "/*+ melt_route(lake) */ SELECT id FROM REMOTE.PUB.USERS"}"#,
-    );
+    let body =
+        Bytes::from(r#"{"statement": "/*+ melt_route(lake) */ SELECT id FROM REMOTE.PUB.USERS"}"#);
     let resp = execute(State(state), RawQuery(None), bearer("tk"), body).await;
     let (_parts, _body) = resp.into_parts();
     let executed = seen.lock();
@@ -427,11 +411,8 @@ async fn hybrid_attach_unavailable_forces_materialize_path() {
     let backend = MockHybridBackend::new(vec![]).with_attach_unavailable();
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |_| {},
-    );
+    let state =
+        build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |_| {});
     seed_session(&state, "tk");
 
     let body = Bytes::from(r#"{"statement": "SELECT id FROM REMOTE.PUB.USERS"}"#);
@@ -457,14 +438,10 @@ async fn hybrid_cache_serves_repeat_queries_without_backend() {
     let backend = MockHybridBackend::new(vec![]);
     let counts = backend.execute_count_handle();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |c| {
-            c.hybrid_fragment_cache_ttl = Duration::from_secs(60);
-            c.hybrid_fragment_cache_max_entries = 8;
-        },
-    );
+    let state = build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |c| {
+        c.hybrid_fragment_cache_ttl = Duration::from_secs(60);
+        c.hybrid_fragment_cache_max_entries = 8;
+    });
     seed_session(&state, "tk");
 
     // v1's query_request takes a JSON body shaped like
@@ -519,13 +496,7 @@ async fn hybrid_no_cache_replays_each_query() {
     )
     .await;
     let after_first = counts.load(Ordering::Relaxed);
-    let _ = execute(
-        State(state),
-        RawQuery(None),
-        bearer("tk"),
-        Bytes::from(sql),
-    )
-    .await;
+    let _ = execute(State(state), RawQuery(None), bearer("tk"), Bytes::from(sql)).await;
     let after_second = counts.load(Ordering::Relaxed);
     assert!(
         after_second > after_first,
@@ -543,11 +514,8 @@ async fn hybrid_oversize_attach_above_cap_passthroughs() {
     let backend = MockHybridBackend::new(vec![]).with_oversize_estimate(20 * 1024 * 1024 * 1024);
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |_| {},
-    );
+    let state =
+        build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |_| {});
     seed_session(&state, "tk");
 
     let body = Bytes::from(r#"{"statement": "SELECT id FROM REMOTE.PUB.USERS"}"#);
@@ -572,11 +540,8 @@ async fn hybrid_hint_route_hybrid_bypasses_caps() {
     let backend = MockHybridBackend::new(vec![]).with_oversize_estimate(50 * 1024 * 1024 * 1024);
     let seen = backend.seen_clone();
     let backend: Arc<dyn StorageBackend> = Arc::new(backend);
-    let state = build_state_with_hybrid(
-        backend,
-        matcher_with_remote(&["REMOTE.PUB.USERS"]),
-        |_| {},
-    );
+    let state =
+        build_state_with_hybrid(backend, matcher_with_remote(&["REMOTE.PUB.USERS"]), |_| {});
     seed_session(&state, "tk");
 
     let body = Bytes::from(

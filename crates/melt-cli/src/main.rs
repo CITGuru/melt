@@ -8,6 +8,7 @@ mod config;
 mod debug_cmd;
 mod reload;
 mod runtime;
+mod runtime_init;
 mod shutdown;
 mod sync_cmd;
 
@@ -101,10 +102,26 @@ enum BootstrapAction {
     },
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Build the Tokio runtime manually so we can cap the blocking
+    // thread pool — see `runtime_init` and `docs/internal/KNOWN_ISSUES.md`
+    // § KI-001 for why. Resolution depends on `cli.config`, so we have
+    // to defer this until after clap has run.
+    let max_blocking = runtime_init::resolve_max_blocking_threads(
+        cli.config.as_deref(),
+        runtime_init::EnvSource::Process,
+    );
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .max_blocking_threads(max_blocking)
+        .build()?;
+    tracing::debug!(max_blocking_threads = max_blocking, "tokio runtime built");
+    runtime.block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // `sync` operator sub-commands (reload/list/status/refresh) reach
     // the running proxy or Postgres directly. `sync run` is special:
     // it needs the full runtime, so we let it fall through.

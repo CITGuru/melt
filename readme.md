@@ -140,6 +140,7 @@ Guides:
 - [Issuing queries (curl, Python, Rust)](docs/guides/issuing-queries.md)
 - [Service authentication (sync creds + Snowflake grants)](docs/guides/service-authentication.md)
 - [Sync (allowlist, state machine, hot reload)](docs/guides/sync.md)
+- [Dual execution (hybrid routing for declared-remote tables)](docs/guides/dual-execution.md)
 - [Object storage (AWS / MinIO / R2 / B2 / Wasabi)](docs/guides/object-storage.md)
 - [TLS (localhost + two production paths)](docs/guides/tls.md)
 - [Policy modes (passthrough / allowlist / enforce)](docs/guides/policy-modes.md)

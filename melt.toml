@@ -159,6 +159,15 @@ log_level  = "info"
 admin_token_file = "/etc/melt/admin.token"
 # admin_token = "inline-secret-for-dev"
 
+# ── Tokio runtime tunables ──────────────────────────────────────
+# Cap on the blocking thread pool — what `spawn_blocking` (and therefore
+# every DuckDB query) runs on. Default 64. Lowered from Tokio's 512 to
+# bound the worst-case thread-pin count when timed-out queries keep
+# running (see docs/internal/KNOWN_ISSUES.md § KI-001). Override per
+# deployment via the MELT_MAX_BLOCKING_THREADS env var.
+# [runtime]
+# max_blocking_threads = 64
+
 # ── Sync: what Melt mirrors from Snowflake to the lake ────────────
 # Router and sync both consult this block. Glob patterns match
 # `DB.SCHEMA.TABLE` case-insensitively.
@@ -242,8 +251,13 @@ max_dependency_depth      = 4
 [backend.ducklake]
 catalog_url       = "postgres://melt:secret@db.internal/melt_catalog"
 data_path         = "s3://acme-melt/ducklake/"
-reader_pool_size  = 16
+reader_pool_size  = 8
 writer_pool_size  = 1
+# Wait timeout when checking out a reader connection. On pool
+# saturation this fails fast and the router's Lake-to-Snowflake
+# fallback serves the query via passthrough rather than queueing
+# indefinitely. See docs/internal/KNOWN_ISSUES.md § KI-001.
+# reader_checkout_timeout = "5s"
 
 # S3-compatible object store for the DuckLake data files. Rendered
 # into DuckDB's `CREATE SECRET (TYPE S3, ...)`. Works with AWS,
