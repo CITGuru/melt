@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use melt_core::S3Config;
 use serde::{Deserialize, Serialize};
 
@@ -40,11 +42,26 @@ pub struct IcebergConfig {
 
     #[serde(default = "IcebergConfig::default_pool")]
     pub reader_pool_size: usize,
+
+    /// How long a reader-pool checkout waits for a free connection
+    /// before failing fast with a timeout. Under sustained pool
+    /// saturation (KI-001), the router's Lake-failure-to-passthrough
+    /// fallback absorbs the timeout pre-first-byte, so queries shed
+    /// load to Snowflake instead of queueing indefinitely. See
+    /// `docs/internal/KNOWN_ISSUES.md`.
+    #[serde(
+        with = "humantime_serde",
+        default = "IcebergConfig::default_reader_checkout_timeout"
+    )]
+    pub reader_checkout_timeout: Duration,
 }
 
 impl IcebergConfig {
     fn default_pool() -> usize {
-        16
+        8
+    }
+    fn default_reader_checkout_timeout() -> Duration {
+        Duration::from_secs(5)
     }
 }
 

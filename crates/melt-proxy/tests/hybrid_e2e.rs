@@ -178,8 +178,10 @@ fn build_state_with_hybrid(
     let sessions = Arc::new(SessionStore::new(limits.clone()));
     let results = ResultStore::new(limits.clone());
 
-    let mut router_cfg = RouterConfig::default();
-    router_cfg.hybrid_execution = true;
+    let mut router_cfg = RouterConfig {
+        hybrid_execution: true,
+        ..RouterConfig::default()
+    };
     cfg_tweak(&mut router_cfg);
     let router_cache = Arc::new(Cache::new(&router_cfg));
 

@@ -52,36 +52,36 @@ pub fn sf_link_attach_sql(cfg: &SnowflakeConfig) -> Option<String> {
     secret.push_str(&escape_sql(&cfg.account));
     secret.push_str("',\n    DATABASE '");
     secret.push_str(&escape_sql(database));
-    secret.push_str("'");
+    secret.push('\'');
     if !cfg.user.is_empty() {
         secret.push_str(",\n    USER '");
         secret.push_str(&escape_sql(&cfg.user));
-        secret.push_str("'");
+        secret.push('\'');
     }
     if !cfg.role.is_empty() {
         secret.push_str(",\n    ROLE '");
         secret.push_str(&escape_sql(&cfg.role));
-        secret.push_str("'");
+        secret.push('\'');
     }
     if !cfg.warehouse.is_empty() {
         secret.push_str(",\n    WAREHOUSE '");
         secret.push_str(&escape_sql(&cfg.warehouse));
-        secret.push_str("'");
+        secret.push('\'');
     }
     if !cfg.schema.is_empty() {
         secret.push_str(",\n    SCHEMA '");
         secret.push_str(&escape_sql(&cfg.schema));
-        secret.push_str("'");
+        secret.push('\'');
     }
     if !cfg.private_key_file.is_empty() {
         secret.push_str(",\n    PRIVATE_KEY_PATH '");
         secret.push_str(&escape_sql(&cfg.private_key_file));
-        secret.push_str("'");
+        secret.push('\'');
     } else if !cfg.pat.is_empty() {
         // PAT goes in the password slot per the extension's auth model.
         secret.push_str(",\n    PASSWORD '");
         secret.push_str(&escape_sql(&cfg.pat));
-        secret.push_str("'");
+        secret.push('\'');
     }
     secret.push_str("\n);\n");
 

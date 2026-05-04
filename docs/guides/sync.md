@@ -36,6 +36,13 @@ exclude = [
     # (toggle with [sync.lazy].exclude_system_schemas = false).
 ]
 
+# Tables matching these globs are NEVER synced — queries that touch
+# them route through dual execution instead. See the dual execution
+# guide.
+remote = [
+    # "BIG_WAREHOUSE.*",
+]
+
 [sync.lazy]
 max_initial_bytes         = "50GB"
 demotion_idle_days        = 30
@@ -47,7 +54,7 @@ exclude_system_schemas    = true
 demotion_interval         = "1h"
 ```
 
-Precedence: `exclude` > `include` > auto-discovery. Identifiers are uppercase-normalized before matching.
+Precedence: `exclude` > `remote` > `include` > auto-discovery. Identifiers are uppercase-normalized before matching. See [dual execution](dual-execution.md) for what `remote` does and when to use it.
 
 ## Operator CLI
 

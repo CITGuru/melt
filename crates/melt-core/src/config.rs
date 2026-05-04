@@ -178,9 +178,9 @@ pub struct RouterConfig {
     )]
     pub hybrid_attach_refresh_interval: Duration,
     /// Statement-level result cache TTL for the hybrid path. When
-    /// > 0, identical hybrid queries within the window skip the
-    /// Snowflake roundtrip entirely and replay cached batches.
-    /// Default 0 (disabled).
+    /// set to a positive duration, identical hybrid queries within
+    /// the window skip the Snowflake roundtrip entirely and replay
+    /// cached batches. Default 0 (disabled).
     #[serde(
         default = "RouterConfig::default_hybrid_fragment_cache_ttl",
         with = "humantime_serde"

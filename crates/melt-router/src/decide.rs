@@ -168,7 +168,7 @@ async fn decide_inner(
     // either succeed or surface the actual missing-table error
     // instead of falling back to passthrough silently.
     if matches!(hints.route, Some(crate::hints::RouteHint::Lake)) {
-        non_remote_tables.extend(remote_tables.drain(..));
+        non_remote_tables.append(&mut remote_tables);
     }
     let mut promotion_reasons: Vec<HybridReason> = Vec::new();
     if !remote_tables.is_empty() {

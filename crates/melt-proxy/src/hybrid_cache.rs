@@ -105,16 +105,14 @@ impl FragmentCache {
         let now = Instant::now();
         // Fast path: read lock, return clone, skip the LRU bump on
         // expired or missing entries.
-        {
-            let read = self.inner.read();
-            let entry = read.get(key)?;
-            if now.duration_since(entry.inserted_at) >= self.ttl {
-                drop(read);
-                self.inner.write().remove(key);
-                return None;
-            }
-            return Some((entry.schema.clone(), entry.batches.clone()));
+        let read = self.inner.read();
+        let entry = read.get(key)?;
+        if now.duration_since(entry.inserted_at) >= self.ttl {
+            drop(read);
+            self.inner.write().remove(key);
+            return None;
         }
+        Some((entry.schema.clone(), entry.batches.clone()))
     }
 
     /// Insert into the cache. Capacity-evicts the oldest entry once
@@ -200,6 +198,10 @@ impl FragmentCache {
     /// inspection (latter not wired in v1).
     pub fn len(&self) -> usize {
         self.inner.read().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.read().is_empty()
     }
 
     /// Convenience wrapper used by `execute_hybrid` to fingerprint a

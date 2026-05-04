@@ -68,7 +68,7 @@ parquet = { version = "58", features = ["arrow", "async"] }
 # switched to a packed `1.<minor*100+patch padded>.x` scheme starting
 # with DuckDB 1.5).
 duckdb = { version = "=1.10502", features = ["bundled"] }
-deadpool = "0.12"
+deadpool = { version = "0.12", features = ["rt_tokio_1"] }
 deadpool-postgres = "0.14"
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4"] }
 

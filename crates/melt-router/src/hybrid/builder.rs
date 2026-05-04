@@ -667,9 +667,10 @@ mod tests {
     }
 
     fn cfg() -> RouterConfig {
-        let mut c = RouterConfig::default();
-        c.hybrid_execution = true;
-        c
+        RouterConfig {
+            hybrid_execution: true,
+            ..RouterConfig::default()
+        }
     }
 
     fn run_build(sql: &str, remote: &[(&str, &str, &str)]) -> BuildOutcome {

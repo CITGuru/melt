@@ -74,8 +74,10 @@ mod tests {
     #[test]
     fn attach_disabled_forces_materialize() {
         let node = remote_node(vec![t("X")]);
-        let mut cfg = RouterConfig::default();
-        cfg.hybrid_attach_enabled = false;
+        let cfg = RouterConfig {
+            hybrid_attach_enabled: false,
+            ..RouterConfig::default()
+        };
         assert_eq!(choose_strategy(&node, &cfg), BridgeStrategy::Materialize);
     }
 }

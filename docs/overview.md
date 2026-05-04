@@ -37,5 +37,6 @@ Dual execution preserves the routing invariant: whatever Melt returns equals wha
 - [Docker Compose quickstart](guides/quickstart-docker.md) — fastest path to a running Melt.
 - [Local quickstart](guides/quickstart-local.md) — DuckLake or Iceberg without Compose.
 - [Issuing queries](guides/issuing-queries.md) — connect drivers (curl, Python, Rust).
+- [Dual execution](guides/dual-execution.md) — opt-in hybrid routing for tables you don't want to sync.
 - [Configuration reference](configuration.md) — every field in `melt.toml`.
 - [CLI reference](../crates/melt-cli/readme.md) — the `melt` binary's subcommands and flags.
