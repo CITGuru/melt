@@ -210,12 +210,7 @@ impl FragmentCache {
         // identical SQL strings are the v1 hit set. Trim leading /
         // trailing whitespace so the dashboard re-issuing the same
         // query with subtly different padding still hits.
-        format!(
-            "{}:{}::{}",
-            database.trim(),
-            schema.trim(),
-            sql.trim(),
-        )
+        format!("{}:{}::{}", database.trim(), schema.trim(), sql.trim(),)
     }
 }
 

@@ -174,7 +174,7 @@ pub struct RouterConfig {
     /// (useful for tests).
     #[serde(
         default = "RouterConfig::default_hybrid_attach_refresh_interval",
-        with = "humantime_serde",
+        with = "humantime_serde"
     )]
     pub hybrid_attach_refresh_interval: Duration,
     /// Statement-level result cache TTL for the hybrid path. When
@@ -183,7 +183,7 @@ pub struct RouterConfig {
     /// Default 0 (disabled).
     #[serde(
         default = "RouterConfig::default_hybrid_fragment_cache_ttl",
-        with = "humantime_serde",
+        with = "humantime_serde"
     )]
     pub hybrid_fragment_cache_ttl: Duration,
     /// Hard ceiling on cache entries. Oldest entries evict first

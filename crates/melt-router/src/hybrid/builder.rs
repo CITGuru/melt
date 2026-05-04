@@ -120,7 +120,13 @@ pub fn build_hybrid_plan(
     // is Materialize-only. Keeps the builder a single algorithm
     // (parameterised by the floor) rather than two divergent paths.
     let collapse_floor = if cfg.hybrid_attach_enabled { 2 } else { 1 };
-    collapse_all_remote_subqueries(ast, session, registry, &mut remote_fragments, collapse_floor);
+    collapse_all_remote_subqueries(
+        ast,
+        session,
+        registry,
+        &mut remote_fragments,
+        collapse_floor,
+    );
     try_collapse_top_level_statements(
         ast,
         session,

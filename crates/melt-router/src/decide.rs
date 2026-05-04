@@ -311,8 +311,10 @@ async fn decide_inner(
         // strategy selector decides per-node.
         let registry = TableSourceRegistry::from_iter(remote_tables.iter().cloned());
         let attach_runtime_available = backend.hybrid_attach_available();
-        let force_materialize_by_hint =
-            matches!(hints.strategy, Some(crate::hints::StrategyHint::Materialize));
+        let force_materialize_by_hint = matches!(
+            hints.strategy,
+            Some(crate::hints::StrategyHint::Materialize)
+        );
         let effective_cfg: RouterConfig;
         let cfg_for_builder: &RouterConfig = if cfg.hybrid_attach_enabled
             && !attach_runtime_available

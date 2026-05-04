@@ -574,9 +574,7 @@ async fn execute_hybrid(
     //
     // Failures are non-fatal — the main query already returned;
     // profiling is observability not correctness.
-    if input.state.router_cfg.hybrid_profile_attach_queries
-        && !plan.attach_rewrites.is_empty()
-    {
+    if input.state.router_cfg.hybrid_profile_attach_queries && !plan.attach_rewrites.is_empty() {
         match input
             .state
             .backend
@@ -586,9 +584,7 @@ async fn execute_hybrid(
             Ok(plan_text) if !plan_text.is_empty() => {
                 let attach_lines: Vec<&str> = plan_text
                     .lines()
-                    .filter(|l| {
-                        l.contains("snowflake_scan") || l.contains("query_string")
-                    })
+                    .filter(|l| l.contains("snowflake_scan") || l.contains("query_string"))
                     .collect();
                 tracing::info!(
                     api = input.api,
