@@ -1,6 +1,6 @@
 # Melt landing page
 
-Single-file static site for [melt.dev](https://melt.dev) (or wherever you point it). No build step, no dependencies.
+Single-file static site for [getmelt.dev](https://getmelt.dev) (or wherever you point it). No build step, no dependencies.
 
 ## Local preview
 
@@ -50,7 +50,7 @@ Notable spots:
 
 ## Custom domain
 
-Once deployed, add your domain in Vercel → **Settings** → **Domains**. The `og:url` meta tag in `index.html` is set to `https://melt.dev`; update it if you use a different domain.
+Once deployed, add your domain in Vercel → **Settings** → **Domains**. The `og:url` meta tag in `index.html` is set to `https://getmelt.dev`; update it if you use a different domain.
 
 ## Analytics, waitlist, and UTM attribution
 
@@ -61,19 +61,19 @@ The landing page captures pageviews, named CTA events, and waitlist signups, and
 The IDs that providers care about live in `<meta>` tags at the top of `index.html`:
 
 ```html
-<meta name="melt:plausible-domain"   content="melt.dev" />
+<meta name="melt:plausible-domain"   content="getmelt.dev" />
 <meta name="melt:waitlist-endpoint"  content="https://submit-form.com/__FORMSPARK_ID__" />
 <meta name="melt:outbound-ref"       content="melt-site" />
 ```
 
-Update those three values once accounts are provisioned. The Plausible script tag is hardcoded with `data-domain="melt.dev"` for now — change it on the `<script defer data-domain=…>` line in `<head>` if you move domains.
+Update those three values once accounts are provisioned. The Plausible script tag is hardcoded with `data-domain="getmelt.dev"` for now — change it on the `<script defer data-domain=…>` line in `<head>` if you move domains.
 
 ### Analytics — Plausible
 
 - **Provider:** [Plausible Analytics](https://plausible.io) (hosted, EU-based).
 - **Why:** privacy-first, no cookie banner needed, OSS-friendly narrative for an OSS project, custom events with props are first-class.
 - **Cost:** $9/mo (Growth) covers up to 10k pageviews — sufficient through a Show HN spike. Auto-upgrade kicks in if we exceed it.
-- **Dashboard:** https://plausible.io/melt.dev (after provisioning).
+- **Dashboard:** https://plausible.io/getmelt.dev (after provisioning).
 - **What we track:**
   - `pageview` — automatic (Plausible script).
   - `landing_view` — once per session, with full UTM payload as props.
@@ -87,7 +87,7 @@ Update those three values once accounts are provisioned. The Plausible script ta
 - Every event includes any captured UTM values as props — see UTM section below.
 - Email addresses are **never** sent to Plausible.
 
-To provision: create a Plausible site for `melt.dev`, confirm the domain in Plausible's settings, and the existing `<script>` tag will start reporting immediately. No code change needed past the hardcoded domain match.
+To provision: create a Plausible site for `getmelt.dev`, confirm the domain in Plausible's settings, and the existing `<script>` tag will start reporting immediately. No code change needed past the hardcoded domain match.
 
 ### Waitlist — Formspark
 
