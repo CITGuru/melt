@@ -12,9 +12,25 @@ examples/bench/
 ├── run_bench.py            # driver: connects, runs, writes JSON
 ├── requirements.txt        # snowflake-connector-python (unmodified)
 ├── Makefile                # `make bench` / `make bench-synthetic`
-└── fixtures/               # checked-in reference run output
-    └── results-synthetic.json
+└── fixtures/               # checked-in reference runs
+    ├── results-real.json       # 100×2 against a 50k-row Snowflake trial — the anchor metric
+    └── results-synthetic.json  # no-credentials sanity run
 ```
+
+## Reference numbers
+
+Headline from `fixtures/results-real.json` (100 queries × 2 paths against `ANALYTICS.PUBLIC.{EVENTS,USERS}`, 50k rows each, on a Standard-edition trial account against a Large warehouse, $3/credit):
+
+| Path                       | p50 latency | p95 latency | $ over 100 q | queries / $ |
+|----------------------------|-------------|-------------|--------------|-------------|
+| Snowflake passthrough (L)  | 142 ms      | 236 ms      | $0.1018      | 982         |
+| Melt → lake (100% routed)  | 156 ms      | 245 ms      | $0.0000      | ∞           |
+
+Per-query records show all four templates classified `lake` by `melt route` and all 100 Melt-path queries actually ran on the lake (`route_mix={"lake": 100}`). Lake latency tracks Snowflake's warm-warehouse latency at this dataset size — the savings story is the cost multiplier (every Snowflake query bills warehouse credits, every lake query bills $0), not raw latency.
+
+The fixture redacts the live `warehouse` name to `null` by default; set `BENCH_RECORD_WAREHOUSE_NAME=1` for local-only runs if you need it for debugging. The cost model only needs `warehouse_size`, so this affects nothing except observability.
+
+Re-measure as the lake side improves and as the workload (dataset size, query mix) changes. Always quote the dataset shape + warehouse size alongside the number.
 
 ## Run it (real Snowflake account)
 
@@ -47,15 +63,17 @@ A successful run prints, e.g.:
 
 ```
 ── Bench complete ── (real mode)
-   results: results-20260503T193022Z.json
-   git:     8c4b3f7e…
-   snowflake  queries=100  p50=2103.4ms p95=6420.1ms usd=0.4203 q/$=237.92  routes={'snowflake': 100}
-   melt       queries=100  p50=98.7ms   p95=412.0ms  usd=0.0598 q/$=1672.22 routes={'lake': 88, 'snowflake': 12}
+   results: results-20260505T082000Z.json
+   git:     622fb38…
+   snowflake  queries=100  p50=141.75ms p95=236.19ms usd=0.10181 q/$=982.22  routes={'snowflake': 100}
+   melt       queries=100  p50=156.23ms p95=245.40ms usd=0.0     q/$=∞  routes={'lake': 100}
    ── delta
-      $/1k queries   snowflake=4.2030  melt=0.5980
-      savings/1k     $3.6050  (85.77% cheaper)
-      q/$ factor     melt is 7.03× snowflake
+      $/1k queries   snowflake=1.0181  melt=0.0
+      savings/1k     $1.0181  (100.0% cheaper)
+      q/$ factor     melt is ∞ (all queries routed to lake — zero Snowflake cost)
 ```
+
+When every query in the workload is lake-eligible, `queries_per_dollar` for the Melt path is unbounded and the JSON encodes the factor as the string `"infinite"` (for `jq` parsing). Use `usd_per_1k_queries.savings_pct` as the headline cost-reduction number in that case.
 
 ## Run it (no Snowflake account)
 
