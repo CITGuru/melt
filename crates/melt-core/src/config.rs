@@ -159,6 +159,17 @@ pub struct RouterConfig {
     /// 0.0 disables; 1.0 samples every query (very expensive).
     #[serde(default = "RouterConfig::default_parity_sample_rate")]
     pub hybrid_parity_sample_rate: f32,
+    /// How aggressively the parity sampler compares hybrid and
+    /// Snowflake results. `RowCount` (default) is the cheap first
+    /// gate — only the row counts are compared, the digest path is
+    /// skipped. `Hash` adds the per-row XOR-of-SHA256 digest
+    /// comparison; catches cell-level drift (decimal precision,
+    /// timestamp TZ, semi-structured) at the cost of buffering eager
+    /// batches and running the full canonicalisation. Hash is
+    /// follow-up work — keep on `RowCount` for v0.1 unless you've
+    /// budgeted the extra CPU.
+    #[serde(default)]
+    pub hybrid_parity_compare_mode: HybridParityCompareMode,
     /// When true, `execute_hybrid` reads DuckDB's profiler JSON
     /// after each Attach query and logs the `snowflake_scan`
     /// operator's emitted SQL. Off by default — profiler overhead
@@ -355,11 +366,43 @@ impl Default for RouterConfig {
             hybrid_allow_bootstrapping: false,
             hybrid_allow_oversize: false,
             hybrid_parity_sample_rate: Self::default_parity_sample_rate(),
+            hybrid_parity_compare_mode: HybridParityCompareMode::default(),
             hybrid_profile_attach_queries: false,
             hybrid_attach_refresh_interval: Self::default_hybrid_attach_refresh_interval(),
             hybrid_fragment_cache_ttl: Self::default_hybrid_fragment_cache_ttl(),
             hybrid_fragment_cache_max_entries: Self::default_hybrid_fragment_cache_max_entries(),
             hybrid_strategy: HybridStrategyConfig::default(),
+        }
+    }
+}
+
+/// Comparison mode for the hybrid parity sampler. Trade-off between
+/// correctness coverage and CPU cost — `RowCount` rejects gross drift
+/// (wrong join cardinality, missing rows) cheaply; `Hash` extends the
+/// check to cell-level drift via the per-row digest. Default
+/// `RowCount` matches the POWA-162 plan: `Hash` is parked behind the
+/// default until the bench harness shows the digest cost is workable
+/// at the configured sample rate.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HybridParityCompareMode {
+    /// Compare row counts only. Cheapest path; the digest comparison
+    /// is skipped even when eager batches are available.
+    #[default]
+    RowCount,
+    /// Compare row counts AND a per-row XOR-of-SHA256 digest of the
+    /// canonicalised result. Catches NUMBER precision, TIMESTAMP_TZ,
+    /// VARIANT and NULL ordering drift.
+    Hash,
+}
+
+impl HybridParityCompareMode {
+    /// Stable label for metric/log fields. Matches the `reason` label
+    /// vocabulary on `melt_hybrid_parity_mismatches_total`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RowCount => "row_count",
+            Self::Hash => "hash",
         }
     }
 }

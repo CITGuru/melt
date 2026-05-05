@@ -27,8 +27,8 @@ pub mod translate;
 
 pub use backend::{BackendKind, NoopRouterCache, RouterCache, StorageBackend};
 pub use config::{
-    MeltConfigShared, MetricsConfigShared, ProxyConfig, ProxyLimits, ResolvedS3Credentials,
-    RouterConfig, S3Config,
+    HybridParityCompareMode, MeltConfigShared, MetricsConfigShared, ProxyConfig, ProxyLimits,
+    ResolvedS3Credentials, RouterConfig, S3Config,
 };
 pub use error::{CatalogError, MeltError, Result};
 pub use hybrid::{
