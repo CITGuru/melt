@@ -1,0 +1,37 @@
+{
+  "queries": [
+    {
+      "decided_by_strategy": null,
+      "name": "small_filter",
+      "reason": "UnderThreshold { estimated_bytes: 0 }",
+      "route": "lake",
+      "sql": "SELECT id, value, ts FROM analytics.public.events WHERE user_id = 42 LIMIT 50",
+      "strategy_chain": []
+    },
+    {
+      "decided_by_strategy": null,
+      "name": "selective_join",
+      "reason": "UnderThreshold { estimated_bytes: 0 }",
+      "route": "lake",
+      "sql": "SELECT e.id, u.name, e.value\nFROM analytics.public.events e\nJOIN analytics.public.users  u ON e.user_id = u.id\nWHERE u.region = 'us-east-1'\nLIMIT 100",
+      "strategy_chain": []
+    },
+    {
+      "decided_by_strategy": null,
+      "name": "daily_agg",
+      "reason": "UnderThreshold { estimated_bytes: 0 }",
+      "route": "lake",
+      "sql": "SELECT DATE_TRUNC('day', ts) AS d, COUNT(*) AS n\nFROM analytics.public.events\nWHERE ts > DATEADD(day, -7, CURRENT_TIMESTAMP())\nGROUP BY 1\nORDER BY 1",
+      "strategy_chain": []
+    },
+    {
+      "decided_by_strategy": null,
+      "name": "topn_users",
+      "reason": "UnderThreshold { estimated_bytes: 0 }",
+      "route": "lake",
+      "sql": "SELECT user_id, COUNT(*) AS n\nFROM analytics.public.events\nGROUP BY 1\nORDER BY 2 DESC\nLIMIT 100",
+      "strategy_chain": []
+    }
+  ],
+  "version": 1
+}
