@@ -126,6 +126,57 @@ cargo run --bin melt -- --config melt.local.toml start        # proxy only
 cargo run --bin melt -- --config melt.local.toml sync run     # sync only
 ```
 
+## Quick start: `melt audit` — `$/savings` projection
+
+`melt audit` is a read-only CLI that reads `SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` and produces an account-specific dollar-savings projection — no DuckDB execution, nothing leaves the box. See [the spec](#) for the full output format.
+
+### Try it on the bundled fixture (no Snowflake required)
+
+```bash
+cargo build -p melt-audit
+
+cargo run -p melt-audit -- \
+  --fixture examples/audit/query-history-fixture.csv \
+  --account ACME-DEMO \
+  --window 30d \
+  --out-dir /tmp/melt-audit-demo
+```
+
+This drives the full local pipeline (classify → bucket → aggregate → render) on a 10-row synthetic `QUERY_HISTORY` export and writes:
+
+- stdout: spec §1 summary table + top routable patterns
+- `melt-audit-ACME-DEMO-<date>.json` — schema-versioned JSON (`schema_version: 1`)
+- `melt-audit-ACME-DEMO-<date>.talkingpoints.md` — paste-into-Slack markdown
+
+Fixture mode never opens a network connection, so `git clone` → first audit run is a single `cargo build` away.
+
+### Print the Snowflake grants (paste-and-go)
+
+```bash
+cargo run -p melt-audit -- --print-grants
+```
+
+Outputs the role-creation snippet from spec §2:
+
+```sql
+CREATE ROLE IF NOT EXISTS MELT_AUDIT;
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE MELT_AUDIT;
+GRANT USAGE ON WAREHOUSE <WAREHOUSE_NAME> TO ROLE MELT_AUDIT;
+GRANT ROLE MELT_AUDIT TO USER <USER_NAME>;
+```
+
+### Live mode (Snowflake account)
+
+```bash
+cargo run -p melt-audit -- \
+  --account <locator> \
+  --user <service-user> \
+  --token <pat-or-oauth> \
+  --window 30d
+```
+
+The HTTP path against `ACCOUNT_USAGE.QUERY_HISTORY` is wired in a follow-up commit on the `feat/melt_audit_binary` branch — until then the binary surfaces a remediation hint that names the missing `MELT_AUDIT` role grants. Use the fixture path or `--print-grants` today.
+
 ## Documentation
 
 - [Overview](docs/overview.md) — what Melt is, how it's split into services, the three routes.

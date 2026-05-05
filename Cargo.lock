@@ -2466,6 +2466,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "melt-audit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "melt-core",
+ "melt-router",
+ "serde",
+ "serde_json",
+ "sqlparser",
+]
+
+[[package]]
 name = "melt-cli"
 version = "0.1.0"
 dependencies = [
@@ -2478,6 +2492,7 @@ dependencies = [
  "clap",
  "futures",
  "humantime-serde",
+ "melt-audit",
  "melt-control",
  "melt-core",
  "melt-ducklake",

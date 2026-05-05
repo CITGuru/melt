@@ -20,6 +20,7 @@ melt-snowflake = { workspace = true }
 melt-control = { workspace = true }
 melt-router = { workspace = true }
 melt-proxy = { workspace = true }
+melt-audit = { workspace = true }
 
 melt-ducklake = { workspace = true, optional = true }
 melt-iceberg = { workspace = true, optional = true }

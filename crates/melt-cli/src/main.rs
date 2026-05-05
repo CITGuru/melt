@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+mod audit_cmd;
 mod bootstrap_client;
 mod bootstrap_server;
 mod config;
@@ -66,6 +67,11 @@ enum Command {
         #[command(subcommand)]
         action: debug_cmd::DebugAction,
     },
+    /// Local-only `$/savings` projection from Snowflake
+    /// `ACCOUNT_USAGE.QUERY_HISTORY`. No data leaves the host;
+    /// upload is a separate `melt audit share` subcommand
+    /// (POWA-141, not yet wired).
+    Audit(audit_cmd::AuditArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -116,6 +122,21 @@ async fn main() -> anyhow::Result<()> {
             };
             return sync_cmd::run(&cfg_path, action).await;
         }
+    }
+
+    // `audit` reads `SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` directly
+    // with its own auth flags — no `melt.toml`, no proxy listener,
+    // no metrics init. Short-circuit before any of that.
+    if let Command::Audit(args) = cli.command {
+        let code = audit_cmd::run(args);
+        return if code == std::process::ExitCode::SUCCESS {
+            Ok(())
+        } else {
+            // Surface a non-zero exit at the process level. clap-style
+            // 2 = usage error; the inner `run` already wrote a clear
+            // remediation message to stderr.
+            std::process::exit(2);
+        };
     }
 
     // `debug` subcommands build a read-only backend connection and
@@ -183,6 +204,7 @@ async fn main() -> anyhow::Result<()> {
         } => runtime::Command::Sync,
         Command::Sync { .. } => unreachable!("non-Run handled above"),
         Command::Debug { .. } => unreachable!("handled above"),
+        Command::Audit(_) => unreachable!("handled above"),
     };
 
     runtime::run(cfg, cfg_path, cmd).await
