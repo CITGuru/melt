@@ -42,7 +42,14 @@
 //! - `Bridge(L→R)` for dynamic-filter synthesis.
 
 mod builder;
+pub mod cost;
 mod emit;
+pub mod strategy;
 
 pub use builder::{build_hybrid_plan, BuildOutcome};
+pub use cost::{Cost, CostModel};
 pub use emit::choose_strategy;
+pub use strategy::{
+    ChainStrategy, CollapseDecision, CostStrategy, HeuristicStrategy, PlacementStrategy,
+    StrategyContext,
+};

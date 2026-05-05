@@ -172,6 +172,88 @@ impl ControlCatalog {
             .collect())
     }
 
+    /// Per-table row-count estimates. Mirrors [`Self::estimate_scan_bytes`]
+    /// — same per-input-position output ordering, same view-decomposition
+    /// rules (a decomposed view's row count is the SUM of its dependencies).
+    /// Used by the cost strategy's Attach-vs-Materialize crossover decision.
+    pub async fn estimate_table_rows(&self, tables: &[TableRef]) -> Result<Vec<u64>> {
+        if tables.is_empty() {
+            return Ok(Vec::new());
+        }
+        let client = self.client().await?;
+        let inputs_clause = tables
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                format!(
+                    "({}, {}, {}, {})",
+                    i + 1,
+                    pg_lit(&t.database),
+                    pg_lit(&t.schema),
+                    pg_lit(&t.name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "WITH inputs(ord, database, schema, name) AS (VALUES {inputs_clause}), \
+                  direct AS ( \
+                      SELECT i.ord, s.rows_count \
+                      FROM inputs i \
+                      JOIN melt_table_stats s ON s.database=i.database \
+                                              AND s.schema=i.schema \
+                                              AND s.name=i.name \
+                      WHERE NOT ( \
+                          s.object_kind = 'view' AND s.view_strategy = 'decomposed' \
+                      ) \
+                  ), \
+                  deps AS ( \
+                      SELECT i.ord, ds.rows_count \
+                      FROM inputs i \
+                      JOIN melt_table_stats s ON s.database=i.database \
+                                              AND s.schema=i.schema \
+                                              AND s.name=i.name \
+                      JOIN melt_view_dependencies vd \
+                        ON vd.parent_db     = s.database \
+                       AND vd.parent_schema = s.schema \
+                       AND vd.parent_name   = s.name \
+                      JOIN melt_table_stats ds \
+                        ON ds.database = vd.dep_db \
+                       AND ds.schema   = vd.dep_schema \
+                       AND ds.name     = vd.dep_name \
+                      WHERE s.object_kind = 'view' AND s.view_strategy = 'decomposed' \
+                  ), \
+                  combined AS ( \
+                      SELECT ord, rows_count FROM direct \
+                      UNION ALL \
+                      SELECT ord, rows_count FROM deps \
+                  ) \
+             SELECT i.ord, COALESCE(SUM(c.rows_count), 0)::BIGINT AS rows_count \
+             FROM inputs i \
+             LEFT JOIN combined c ON c.ord = i.ord \
+             GROUP BY i.ord \
+             ORDER BY i.ord"
+        );
+        let rows = client
+            .query(&sql, &[])
+            .await
+            .map_err(|e| MeltError::Catalog(CatalogError::Other(format!("estimate_rows: {e}"))))?;
+        if rows.len() != tables.len() {
+            return Err(MeltError::Catalog(CatalogError::Other(format!(
+                "estimate_table_rows: expected {} rows, got {}",
+                tables.len(),
+                rows.len()
+            ))));
+        }
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let n: i64 = r.get("rows_count");
+                n.max(0) as u64
+            })
+            .collect())
+    }
+
     /// Return whether each input table exists AND is in `active` state.
     /// Tables in `pending`/`bootstrapping`/`quarantined` come back as
     /// `false` so the router forces Snowflake passthrough. Use

@@ -150,6 +150,28 @@ hybrid_attach_refresh_interval = "1h"
 hybrid_fragment_cache_ttl         = "0s"
 hybrid_fragment_cache_max_entries = 256
 
+# Pluggable strategy chain for the Attach-vs-Materialize decision.
+# Default `["heuristic"]` ⇒ today's static "1-table → Attach,
+# 2+-table → Materialize" rule. Flip to `["cost", "heuristic"]` to
+# enable cost-driven decisions; cost answers when it has stats and
+# a clear advantage, heuristic falls back otherwise. See
+# `docs/internal/DUAL_EXECUTION.md` §11.2.1 for the calibration
+# procedure.
+[router.hybrid_strategy]
+chain = ["heuristic"]
+# chain = ["cost", "heuristic"]
+
+[router.hybrid_strategy.cost]
+# Re-fit per deployment from actual `melt_hybrid_materialize_latency_seconds`
+# and response-time histograms. Defaults are starting points, not
+# measurements.
+network_bytes_per_sec          = 100_000_000   # 100 MB/s
+attach_rows_per_sec            = 5_000_000     # 5M rows/s
+materialize_scan_rows_per_sec  = 25_000_000    # 25M rows/s
+materialize_write_rows_per_sec = 12_000_000    # 12M rows/s
+materialize_setup_seconds      = 0.005         # 5 ms temp-table allocation
+min_advantage_ratio            = 1.5           # cost must be ≥1.5× cheaper
+
 [metrics]
 listen     = "0.0.0.0:9090"
 log_format = "json"          # json | pretty

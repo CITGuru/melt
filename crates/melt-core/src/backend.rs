@@ -41,6 +41,21 @@ pub trait StorageBackend: Send + Sync {
         Ok(self.estimate_scan_bytes(tables).await?.iter().sum())
     }
 
+    /// Per-table row-count estimates, parallel to [`Self::estimate_scan_bytes`].
+    /// Used by the dual-execution router's cost strategy to compare
+    /// Attach-vs-Materialize for single-scan queries (the strategy
+    /// crossover point depends on rows-out, not raw bytes).
+    ///
+    /// Default impl returns 0 for every input — backends without
+    /// row-count tracking compile cleanly and the cost strategy
+    /// will then defer (returns `None`), letting the heuristic
+    /// strategy pick. Override in backends whose catalog tracks
+    /// `rows_count` (DuckLake's `melt_table_stats.rows_count` is the
+    /// reference impl).
+    async fn estimate_table_rows(&self, tables: &[TableRef]) -> Result<Vec<u64>> {
+        Ok(vec![0; tables.len()])
+    }
+
     /// Batch existence check — avoids N serial round trips when a
     /// query references many tables. Returns one bool per input in
     /// the same order.
