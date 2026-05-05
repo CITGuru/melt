@@ -215,6 +215,7 @@ async fn check_one(sample: &ParitySample, snowflake: &SnowflakeClient) -> Parity
         warehouse: None,
         database: None,
         schema: None,
+        role: None,
     };
 
     let json = match execute_json(snowflake, &sample.token, &req).await {

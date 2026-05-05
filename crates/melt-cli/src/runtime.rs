@@ -663,35 +663,62 @@ fn print_lazy_route(cfg: &MeltConfig, sql: &str) -> Result<()> {
     let outcome =
         lazy_classify_with_matcher(sql, &session, &cfg.snowflake, matcher.as_ref(), &cfg.router);
 
-    println!("input SQL: {sql}");
-    println!("route: {}", outcome.route.as_str());
-    match outcome.route {
+    print!("{}", format_lazy_route(sql, &outcome));
+
+    let _: &dyn RouterCache = &NoopRouterCache;
+    Ok(())
+}
+
+/// Render the `melt route` output for a classification outcome. Pure
+/// string-formatting so unit tests can assert on golden output without
+/// running a live classifier — see `mod tests::route_render` below.
+fn format_lazy_route(sql: &str, outcome: &melt_router::RouteOutcome) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input SQL: {sql}");
+    let _ = writeln!(out, "route: {}", outcome.route.as_str());
+    match &outcome.route {
         melt_core::Route::Lake { reason } => {
-            println!("reason: {reason:?}");
-            if let Some(t) = outcome.translated_sql {
-                println!("translated:");
-                println!("{t}");
+            let _ = writeln!(out, "reason: {reason:?}");
+            if let Some(t) = &outcome.translated_sql {
+                let _ = writeln!(out, "translated:");
+                let _ = writeln!(out, "{t}");
             }
         }
         melt_core::Route::Snowflake { reason } => {
-            println!("reason: {} ({:?})", reason.label(), reason);
+            let _ = writeln!(out, "reason: {} ({:?})", reason.label(), reason);
         }
         melt_core::Route::Hybrid {
             plan,
             reason,
             estimated_remote_bytes,
         } => {
-            println!("reason: {} ({})", reason.label(), reason);
-            println!("strategy: {}", plan.strategy_label());
-            println!(
+            let _ = writeln!(out, "reason: {} ({})", reason.label(), reason);
+            let _ = writeln!(out, "strategy: {}", plan.strategy_label());
+            // One-line attribution summary: configured chain + which
+            // member returned the top-level decision (or `fallback`).
+            // Mirrors `melt_hybrid_strategy_decisions_total{strategy=…}`
+            // so operators can correlate metric output with EXPLAIN
+            // output for the same query.
+            let _ = writeln!(
+                out,
+                "strategy_chain: [{}]   chain_decided_by: {}",
+                plan.strategy_chain.join(", "),
+                plan.chain_decided_by
+            );
+            let _ = writeln!(
+                out,
                 "remote_fragments: {}  attach_rewrites: {}  est_remote_bytes: {}",
                 plan.remote_fragments.len(),
                 plan.attach_rewrites.len(),
                 estimated_remote_bytes
             );
             for frag in &plan.remote_fragments {
-                println!(
-                    "\n[REMOTE,materialize] {} ({} table{})",
+                let _ = writeln!(
+                    out,
+                    "\n[REMOTE,materialize,strategy={}] {} ({} table{})",
+                    frag.decided_by_strategy,
                     frag.placeholder,
                     frag.scanned_tables.len(),
                     if frag.scanned_tables.len() == 1 {
@@ -700,25 +727,175 @@ fn print_lazy_route(cfg: &MeltConfig, sql: &str) -> Result<()> {
                         "s"
                     }
                 );
-                println!("{}", frag.snowflake_sql);
+                let _ = writeln!(out, "{}", frag.snowflake_sql);
             }
             for rw in &plan.attach_rewrites {
-                println!(
-                    "\n[REMOTE,attach] {} → {}",
+                let _ = writeln!(
+                    out,
+                    "\n[REMOTE,attach,strategy={}] {} → {}",
+                    rw.decided_by_strategy,
                     rw.original.fqn(),
                     rw.alias_reference
                 );
             }
             if !plan.local_sql.is_empty() {
-                println!("\nlocal SQL:");
-                println!("{}", plan.local_sql);
+                let _ = writeln!(out, "\nlocal SQL:");
+                let _ = writeln!(out, "{}", plan.local_sql);
             }
         }
     }
-    println!("\nNote: `melt route` runs the cheap classification path only.");
-    println!("TableMissing / AboveThreshold / PolicyProtected can't be evaluated");
-    println!("without a live backend — use `melt status` for the full picture.");
+    let _ = writeln!(
+        out,
+        "\nNote: `melt route` runs the cheap classification path only."
+    );
+    let _ = writeln!(
+        out,
+        "TableMissing / AboveThreshold / PolicyProtected can't be evaluated"
+    );
+    let _ = writeln!(
+        out,
+        "without a live backend — use `melt status` for the full picture."
+    );
+    out
+}
 
-    let _: &dyn RouterCache = &NoopRouterCache;
-    Ok(())
+#[cfg(test)]
+mod route_render_tests {
+    //! Golden-output coverage for `melt route` strategy attribution.
+    //!
+    //! Constructs synthetic [`HybridPlan`]s with each strategy label
+    //! (`heuristic`, `cost`, `fallback`) and asserts the rendered text
+    //! carries the per-fragment `strategy=…` annotation plus the
+    //! one-line chain summary. Covers the v0.1 anchor-metric demo
+    //! contract on POWA-158.
+    use super::format_lazy_route;
+    use melt_core::{
+        AttachRewrite, HybridPlan, HybridReason, NodeKind, Placement, PlanNode, RemoteFragment,
+        Route, TableRef,
+    };
+    use melt_router::RouteOutcome;
+    use std::sync::Arc;
+
+    fn root_node() -> PlanNode {
+        PlanNode::new(
+            0,
+            NodeKind::Project {
+                columns: vec!["<root>".into()],
+            },
+            Placement::Local,
+        )
+    }
+
+    fn plan_with(
+        strategy_chain: Vec<&str>,
+        chain_decided_by: &str,
+        fragments: Vec<RemoteFragment>,
+        rewrites: Vec<AttachRewrite>,
+    ) -> Arc<HybridPlan> {
+        Arc::new(HybridPlan {
+            root: root_node(),
+            remote_fragments: fragments,
+            attach_rewrites: rewrites,
+            local_sql: "SELECT * FROM __remote_0".into(),
+            estimated_remote_bytes: 1_048_576,
+            strategy_chain: strategy_chain.into_iter().map(String::from).collect(),
+            chain_decided_by: chain_decided_by.into(),
+        })
+    }
+
+    fn outcome(plan: Arc<HybridPlan>) -> RouteOutcome {
+        RouteOutcome {
+            route: Route::Hybrid {
+                plan,
+                reason: HybridReason::RemoteByConfig,
+                estimated_remote_bytes: 1_048_576,
+            },
+            translated_sql: None,
+        }
+    }
+
+    #[test]
+    fn heuristic_label_appears_on_attach_line_and_chain_summary() {
+        // Default chain `[heuristic]`: single-table queries stay
+        // Attach. Render should attribute the rewrite to the heuristic.
+        let plan = plan_with(
+            vec!["heuristic"],
+            "heuristic",
+            vec![],
+            vec![AttachRewrite {
+                original: TableRef::new("WAREHOUSE", "PUBLIC", "USERS"),
+                alias_reference: "sf_link.WAREHOUSE.PUBLIC.USERS".into(),
+                decided_by_strategy: "heuristic".into(),
+            }],
+        );
+        let rendered = format_lazy_route("SELECT * FROM USERS", &outcome(plan));
+        assert!(
+            rendered.contains("strategy_chain: [heuristic]   chain_decided_by: heuristic"),
+            "missing chain summary; got:\n{rendered}",
+        );
+        assert!(
+            rendered.contains(
+                "[REMOTE,attach,strategy=heuristic] WAREHOUSE.PUBLIC.USERS \
+                 → sf_link.WAREHOUSE.PUBLIC.USERS",
+            ),
+            "missing per-rewrite heuristic attribution; got:\n{rendered}",
+        );
+    }
+
+    #[test]
+    fn cost_label_appears_on_materialize_line_and_chain_summary() {
+        // Chain `[cost, heuristic]` where the cost strategy decides
+        // Collapse for a single-table query. The fragment carries
+        // strategy=cost; the chain summary names cost as the decider.
+        let plan = plan_with(
+            vec!["cost", "heuristic"],
+            "cost",
+            vec![RemoteFragment {
+                placeholder: "__remote_0".into(),
+                snowflake_sql: "SELECT id, tier FROM warehouse.customers".into(),
+                scanned_tables: vec![TableRef::new("WAREHOUSE", "PUBLIC", "CUSTOMERS")],
+                decided_by_strategy: "cost".into(),
+            }],
+            vec![],
+        );
+        let rendered = format_lazy_route("SELECT * FROM customers", &outcome(plan));
+        assert!(
+            rendered.contains("strategy_chain: [cost, heuristic]   chain_decided_by: cost"),
+            "missing chain summary; got:\n{rendered}",
+        );
+        assert!(
+            rendered.contains("[REMOTE,materialize,strategy=cost] __remote_0 (1 table)"),
+            "missing per-fragment cost attribution; got:\n{rendered}",
+        );
+    }
+
+    #[test]
+    fn fallback_label_appears_when_chain_is_empty() {
+        // Empty chain `[]`: every member abstains, so `ChainStrategy`
+        // returns ("fallback", _). Render must show the empty chain
+        // and a `strategy=fallback` per-line label so the operator can
+        // recognise this distinct case.
+        let plan = plan_with(
+            vec![],
+            "fallback",
+            vec![],
+            vec![AttachRewrite {
+                original: TableRef::new("WAREHOUSE", "PUBLIC", "USERS"),
+                alias_reference: "sf_link.WAREHOUSE.PUBLIC.USERS".into(),
+                decided_by_strategy: "fallback".into(),
+            }],
+        );
+        let rendered = format_lazy_route("SELECT * FROM USERS", &outcome(plan));
+        assert!(
+            rendered.contains("strategy_chain: []   chain_decided_by: fallback"),
+            "missing fallback chain summary; got:\n{rendered}",
+        );
+        assert!(
+            rendered.contains(
+                "[REMOTE,attach,strategy=fallback] WAREHOUSE.PUBLIC.USERS \
+                 → sf_link.WAREHOUSE.PUBLIC.USERS",
+            ),
+            "missing per-rewrite fallback attribution; got:\n{rendered}",
+        );
+    }
 }
