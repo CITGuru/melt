@@ -184,6 +184,8 @@ mod tests {
             attach_rewrites: Vec::new(),
             local_sql: String::new(),
             estimated_remote_bytes: 0,
+            strategy_chain: vec!["heuristic".into()],
+            chain_decided_by: "heuristic".into(),
         })
     }
 

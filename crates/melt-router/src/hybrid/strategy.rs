@@ -241,6 +241,13 @@ impl ChainStrategy {
         Self { members }
     }
 
+    /// Names of every member, in chain order. Used by the builder to
+    /// stamp `HybridPlan::strategy_chain` so `melt route` output can
+    /// show the configured chain even when every member abstains.
+    pub fn member_names(&self) -> Vec<&'static str> {
+        self.members.iter().map(|s| s.name()).collect()
+    }
+
     /// Walk the chain and return both the decision AND the name
     /// of the strategy that produced it. The name powers the
     /// `melt_hybrid_strategy_decisions_total{strategy=…}` metric.
