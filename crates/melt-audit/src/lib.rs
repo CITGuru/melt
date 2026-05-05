@@ -24,8 +24,8 @@ pub mod redact;
 pub mod snowflake;
 
 pub use aggregate::build_audit_output;
-pub use cli::{run as run_cli, AuditArgs};
 pub use classify::{classify_query, Bucket, PassthroughReason, QueryAnalysis};
+pub use cli::{run as run_cli, AuditArgs};
 pub use credit::{credits_per_hour, credits_used, dollars};
 pub use grants::GRANTS_SQL;
 pub use model::{
