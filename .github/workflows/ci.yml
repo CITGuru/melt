@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "5"
+  # Trim debug info on CI: line tables only keeps panic line numbers without
+  # the multi-GB DWARF tail that `duckdb-rs` (bundled C++ build) plus arrow /
+  # tonic / tokio otherwise produce. Keeps `target/` under the ~14 GB free
+  # root disk on GH-hosted Linux runners.
+  CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
+  CARGO_PROFILE_TEST_DEBUG: "line-tables-only"
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `duckdb = { features = ["bundled"] }` compiles DuckDB's full C++
+      # tree from cargo. Combined with arrow / tonic / tokio that easily
+      # overruns the ~14 GB free root disk on GH-hosted Linux runners.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --no-fail-fast
+
+  pr-policy:
+    name: pr-policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validate branch name
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          bash scripts/check-pr-policy.sh --branch "$BRANCH"
+
+      - name: Reject Co-Authored-By trailers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          range="${BASE_SHA}..${HEAD_SHA}"
+          offenders=$(git log --format='%H %s' "$range" --grep='Co-Authored-By:' -i || true)
+          if [[ -n "$offenders" ]]; then
+            echo "::error::Found commits with Co-Authored-By trailers (forbidden by CONTRIBUTING.md):"
+            echo "$offenders"
+            echo
+            echo "Strip locally with: scripts/check-pr-policy.sh --strip"
+            exit 1
+          fi
+          echo "No Co-Authored-By trailers in $range — ok."
