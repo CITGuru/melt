@@ -83,7 +83,7 @@ impl<'a> StrategyContext<'a> {
     /// (we can't make a sound size-driven decision with partial
     /// stats).
     pub fn total_rows(&self) -> u64 {
-        if self.per_table_rows.iter().any(|r| *r == 0) {
+        if self.per_table_rows.contains(&0) {
             return 0;
         }
         self.per_table_rows.iter().sum()
@@ -91,7 +91,7 @@ impl<'a> StrategyContext<'a> {
 
     /// Sum of per-table bytes. Same partial-stats handling.
     pub fn total_bytes(&self) -> u64 {
-        if self.per_table_bytes.iter().any(|b| *b == 0) {
+        if self.per_table_bytes.contains(&0) {
             return 0;
         }
         self.per_table_bytes.iter().sum()
