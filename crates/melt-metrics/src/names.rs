@@ -48,7 +48,26 @@ pub const HYBRID_PUSHDOWN_COLLAPSED: &str = "melt_hybrid_pushdown_collapsed_tota
 pub const HYBRID_FALLBACKS: &str = "melt_hybrid_fallbacks_total";
 pub const HYBRID_REMOTE_ERRORS: &str = "melt_hybrid_remote_errors_total";
 pub const HYBRID_ATTACH_UNAVAILABLE: &str = "melt_hybrid_attach_unavailable_total";
+/// Counter — increments on every parity mismatch detected by
+/// `crates/melt-proxy/src/hybrid_parity.rs`. Labels:
+/// - `route="hybrid"` — the parity sampler only samples hybrid routes
+///   today; the label is fixed but kept so downstream dashboards can
+///   group by route alongside `melt_router_decisions_total`.
+/// - `reason="row_count"` — the row count differed between hybrid and
+///   Snowflake replay. Cheapest, coarsest signal.
+/// - `reason="hash"` — row counts match but the per-row XOR-of-SHA256
+///   digest disagreed. Indicates cell-level drift (decimal precision,
+///   timestamp TZ, VARIANT, NULL ordering).
+///
+/// `reason="type_drift"` is reserved for a follow-up that splits the
+/// `hash` bucket into typed sub-reasons.
 pub const HYBRID_PARITY_MISMATCHES: &str = "melt_hybrid_parity_mismatches_total";
+/// Counter — every sample the drain task processed, labelled by
+/// `outcome="match|mismatch|replay_failed"`. Lets the bench harness
+/// (and prod alerting) prove the sampler actually ran ≥ N queries
+/// rather than just observing zero mismatches because zero samples
+/// were processed.
+pub const HYBRID_PARITY_SAMPLES: &str = "melt_hybrid_parity_samples_total";
 pub const HYBRID_PARITY_SAMPLE_DROPS: &str = "melt_hybrid_parity_sample_drops_total";
 
 pub const HYBRID_REMOTE_SCAN_BYTES: &str = "melt_hybrid_remote_scan_bytes";
