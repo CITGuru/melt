@@ -630,7 +630,7 @@ async fn cost_chain_multi_table_still_materializes() {
         other => panic!("expected Hybrid, got {other:?}"),
     };
     assert!(
-        plan.remote_fragments.len() >= 1,
+        !plan.remote_fragments.is_empty(),
         "expected Materialize for multi-table; fragments={} attach={}",
         plan.remote_fragments.len(),
         plan.attach_rewrites.len(),
