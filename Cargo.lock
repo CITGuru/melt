@@ -2650,6 +2650,7 @@ dependencies = [
  "bytes",
  "chrono",
  "dashmap",
+ "deadpool",
  "futures",
  "futures-util",
  "http 1.4.0",
