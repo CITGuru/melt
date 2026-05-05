@@ -1,0 +1,174 @@
+# Agent-cost demo workload — fixed 200-query mix simulating LLM-agent SQL traffic.
+#
+# Shape (POWA-94):
+#   70% small filtered SELECTs over a fact table  → 140 queries
+#   20% small aggregations (COUNT/SUM/AVG)        →  40 queries
+#   10% multi-table JOINs                         →  20 queries
+#
+# Templates are parameterised so the 200 instances vary at the predicate level
+# (user_id, region, date window, etc.) but stay shaped like agent traffic — the
+# point is realism, not flattering numbers. Do not retune these to inflate
+# routable %.
+#
+# The cost block is intentionally identical to examples/bench/workload.toml so
+# every $/query number we publish is sourced from one place. If you change a
+# value here, change it there too.
+
+[demo]
+total_queries = 200      # 140 filter / 40 agg / 20 join
+seed          = 7        # deterministic; same seed across runs
+
+[mix]
+small_filter   = 140
+small_agg      = 40
+multi_join     = 20
+
+[cost]
+# Snowflake Standard list price ≈ $3/credit (Enterprise ≈ $4). We use the
+# cheaper edition so savings claims stay defensible — Enterprise customers see
+# proportionally more.
+#   Source: https://www.snowflake.com/pricing/
+credit_rate_usd = 3.00
+
+# Default warehouse size we cost passthrough against. "L" matches the framing
+# in melt's readme (a single shared LARGE warehouse — the typical agent-spend
+# pattern we're targeting).
+default_warehouse_size = "L"
+
+# Lake-routed reads run on the local DuckDB engine, never bill a warehouse.
+lake_snowflake_credits_per_query = 0.0
+
+# Snowflake credits/hour by warehouse size (matches WAREHOUSE_MANAGEMENT.md
+# §16 — every step doubles).
+warehouse_credits_per_hour = { XS = 1, S = 2, M = 4, L = 8, XL = 16 }
+
+[latency]
+# Synthetic latency model. Numbers carried over verbatim from
+# examples/bench/workload.toml [synthetic] so the demo and the bench harness
+# agree on what an "average small-query agent" looks like on a shared L
+# warehouse. Replace with measured values once POWA-92 (seed mode) lands and
+# the demo can hit a real proxy without Snowflake creds.
+snowflake_p50_ms = 1800
+snowflake_p95_ms = 6500
+lake_p50_ms      = 90
+lake_p95_ms      = 320
+
+# --- Query templates ------------------------------------------------------
+#
+# Each template carries the route Melt is expected to choose AND a relative
+# weight inside its shape. Within each shape, templates are sampled by weight,
+# so the per-template lake/passthrough split is what determines the routable %
+# at the bottom of the demo's table.
+#
+# Target routable %: ~85%, matching the [synthetic] block of
+# examples/bench/workload.toml. We hit that with realistic passthrough
+# templates per shape — INFORMATION_SCHEMA lookups, declared-remote tables,
+# unselective joins — NOT by retuning the lake-eligible templates. If the
+# router improves, this number will climb on its own.
+
+# Small filter — 140 queries, target ~93% lake (130 lake / 10 passthrough)
+
+[[query]]
+name           = "filter_by_user"
+shape          = "small_filter"
+expected_route = "lake"
+weight         = 50
+sql = "SELECT id, value, ts FROM analytics.public.events WHERE user_id = {user_id} LIMIT 50"
+
+[[query]]
+name           = "filter_by_session"
+shape          = "small_filter"
+expected_route = "lake"
+weight         = 45
+sql = "SELECT id, kind, payload FROM analytics.public.events WHERE session_id = '{session_id}' AND ts > DATEADD(hour, -1, CURRENT_TIMESTAMP()) LIMIT 100"
+
+[[query]]
+name           = "filter_by_event"
+shape          = "small_filter"
+expected_route = "lake"
+weight         = 35
+sql = "SELECT id, user_id, ts FROM analytics.public.events WHERE event_type = '{event_type}' AND ts > DATEADD(day, -{days}, CURRENT_TIMESTAMP()) LIMIT 200"
+
+# INFORMATION_SCHEMA queries can't run on the lake copy — they target
+# Snowflake catalog state directly. Routine for any agent that introspects
+# tables before querying them.
+[[query]]
+name           = "filter_information_schema"
+shape          = "small_filter"
+expected_route = "snowflake"
+weight         = 10
+sql = "SELECT table_name, row_count FROM information_schema.tables WHERE table_schema = 'PUBLIC' LIMIT 50"
+
+# Small agg — 40 queries, target ~80% lake (32 lake / 8 passthrough)
+
+[[query]]
+name           = "count_by_day"
+shape          = "small_agg"
+expected_route = "lake"
+weight         = 50
+sql = "SELECT DATE_TRUNC('day', ts) AS d, COUNT(*) AS n FROM analytics.public.events WHERE ts > DATEADD(day, -{days}, CURRENT_TIMESTAMP()) GROUP BY 1 ORDER BY 1"
+
+[[query]]
+name           = "sum_value_by_user"
+shape          = "small_agg"
+expected_route = "lake"
+weight         = 30
+sql = "SELECT user_id, SUM(value) AS total FROM analytics.public.events WHERE ts > DATEADD(day, -{days}, CURRENT_TIMESTAMP()) GROUP BY 1 ORDER BY 2 DESC LIMIT 50"
+
+# Aggregation against a declared-remote table that the lake copy doesn't
+# carry — Melt forwards to Snowflake. Realistic for any tenant that hasn't
+# fully bootstrapped every dimension table.
+[[query]]
+name           = "agg_remote_billing"
+shape          = "small_agg"
+expected_route = "snowflake"
+weight         = 20
+sql = "SELECT plan_tier, COUNT(*) AS n FROM analytics.billing.invoices WHERE invoiced_at > DATEADD(day, -{days}, CURRENT_TIMESTAMP()) GROUP BY 1"
+
+# Multi-join — 20 queries, target ~60% lake (12 lake / 8 passthrough)
+
+[[query]]
+name           = "join_user_region"
+shape          = "multi_join"
+expected_route = "lake"
+weight         = 35
+sql = """
+SELECT e.id, u.name, u.region, e.value
+FROM analytics.public.events e
+JOIN analytics.public.users  u ON e.user_id = u.id
+WHERE u.region = '{region}'
+  AND e.ts > DATEADD(day, -{days}, CURRENT_TIMESTAMP())
+LIMIT 100
+"""
+
+[[query]]
+name           = "join_session_event"
+shape          = "multi_join"
+expected_route = "lake"
+weight         = 25
+sql = """
+SELECT s.id AS session_id, s.user_id, COUNT(e.id) AS n_events
+FROM analytics.public.sessions s
+JOIN analytics.public.events  e ON e.session_id = s.id
+WHERE s.started_at > DATEADD(day, -{days}, CURRENT_TIMESTAMP())
+GROUP BY 1, 2
+ORDER BY 3 DESC
+LIMIT 50
+"""
+
+# Unbounded join across the full event history — exceeds the lake's scan
+# budget, falls through to passthrough. Hybrid execution may pick this up
+# later (POWA-90 dual-execution work), at which point the router will start
+# returning "dual" and the demo's routable % moves up.
+[[query]]
+name           = "join_full_history"
+shape          = "multi_join"
+expected_route = "snowflake"
+weight         = 40
+sql = """
+SELECT u.region, SUM(e.value) AS total
+FROM analytics.public.events e
+JOIN analytics.public.users  u ON e.user_id = u.id
+GROUP BY 1
+ORDER BY 2 DESC
+"""
