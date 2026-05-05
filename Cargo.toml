@@ -10,6 +10,7 @@ members = [
     "crates/melt-router",
     "crates/melt-proxy",
     "crates/melt-cli",
+    "crates/melt-audit",
 ]
 
 [workspace.package]
@@ -92,6 +93,7 @@ melt-ducklake = { path = "crates/melt-ducklake" }
 melt-iceberg = { path = "crates/melt-iceberg" }
 melt-router = { path = "crates/melt-router" }
 melt-proxy = { path = "crates/melt-proxy" }
+melt-audit = { path = "crates/melt-audit" }
 
 arc-swap = "1.7"
 globset = "0.4"
