@@ -1,0 +1,32 @@
+# Minimal `melt.toml` used by `regen_routes.py` to drive `melt route`.
+#
+# `melt route` short-circuits before backend connections are opened, so
+# the values below only need to parse — none of them are dialed.
+# Keep this file in sync with the structure consumed by `MeltConfig`
+# in `crates/melt-cli/src/config.rs`.
+
+[proxy]
+listen   = "127.0.0.1:18443"
+tls_cert = "/dev/null"
+tls_key  = "/dev/null"
+
+[snowflake]
+account  = "bench-fixture"
+database = "analytics"
+schema   = "public"
+
+[router]
+# Defaults; explicit so a router default change forces a fixture rerun.
+lake_max_scan_bytes = "100GB"
+
+[sync]
+auto_discover = true
+include       = []
+exclude       = []
+remote        = []
+
+[backend.ducklake]
+catalog_url      = "postgres://bench:bench@127.0.0.1:1/bench-fixture"
+data_path        = "/tmp/melt-bench-fixture"
+reader_pool_size = 1
+writer_pool_size = 1

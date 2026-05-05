@@ -194,7 +194,9 @@ fn run_live(args: &AuditArgs, window_days: u32) -> Result<(), LiveError> {
         .enable_all()
         .build()
         .map_err(|e| {
-            LiveError::Runtime(anyhow::anyhow!("init tokio runtime for live audit pull: {e}"))
+            LiveError::Runtime(anyhow::anyhow!(
+                "init tokio runtime for live audit pull: {e}"
+            ))
         })?;
     let pull = runtime
         .block_on(run_pull(&plan, &client))
@@ -235,9 +237,8 @@ fn resolve_auth(args: &AuditArgs) -> anyhow::Result<AuditAuth> {
         }
         (Some(t), None) => Ok(AuditAuth::Pat(t.clone())),
         (None, Some(path)) => {
-            let pem_bytes = std::fs::read(path).map_err(|e| {
-                anyhow::anyhow!("read --private-key from {}: {e}", path.display())
-            })?;
+            let pem_bytes = std::fs::read(path)
+                .map_err(|e| anyhow::anyhow!("read --private-key from {}: {e}", path.display()))?;
             let user = args
                 .user
                 .clone()

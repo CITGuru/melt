@@ -16,7 +16,7 @@ RUNS   ?= 100
 CONC   ?= 4
 OUT    ?= results-$(shell date -u +%Y%m%dT%H%M%SZ).json
 
-.PHONY: help install bench bench-synthetic bench-parity up down logs clean
+.PHONY: help install bench bench-synthetic bench-parity routes-fixture up down logs clean
 
 help:
 	@echo "make install            - pip install requirements.txt"
@@ -25,6 +25,7 @@ help:
 	@echo "make bench              - run real bench, write to $(OUT)"
 	@echo "make bench-synthetic    - run no-credentials bench, write a fixture"
 	@echo "make bench-parity       - run real bench + assert hybrid parity (POWA-162)"
+	@echo "make routes-fixture     - regenerate fixtures/routes.json from workload.toml"
 	@echo "make logs               - tail melt logs"
 	@echo "make clean              - rm results-*.json (keeps fixtures/)"
 
@@ -64,6 +65,13 @@ bench-parity:
 	$(PYTHON) run_bench.py --parity-sampler \
 		--parity-min-samples $(PARITY_MIN_SAMPLES) \
 		--runs $(RUNS) --concurrency $(CONC) --out $(OUT)
+
+# Regenerate the routing golden fixture. Run after an intentional router
+# change; the CI test in `crates/melt-router/tests/bench_routes_fixture.rs`
+# fails on any drift from this file. Anchored to POWA-163 / §A6 of the
+# launch-checklist.
+routes-fixture:
+	$(PYTHON) fixtures/regen_routes.py
 
 clean:
 	@find . -maxdepth 1 -name "results-*.json" -print -delete

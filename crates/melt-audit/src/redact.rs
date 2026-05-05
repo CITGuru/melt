@@ -167,10 +167,7 @@ fn scan_dollar_quote(bytes: &[u8], start: usize) -> Option<usize> {
     // Find $tag$ closer.
     let mut i = body_start;
     while i + tag.len() + 1 < bytes.len() {
-        if bytes[i] == b'$'
-            && bytes[i + 1..].starts_with(tag)
-            && bytes[i + 1 + tag.len()] == b'$'
-        {
+        if bytes[i] == b'$' && bytes[i + 1..].starts_with(tag) && bytes[i + 1 + tag.len()] == b'$' {
             return Some(i + 2 + tag.len());
         }
         i += 1;

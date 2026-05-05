@@ -237,7 +237,13 @@ pub fn output_stem(account: &str, when: DateTime<Utc>) -> String {
 
 fn sanitize_account(a: &str) -> String {
     a.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

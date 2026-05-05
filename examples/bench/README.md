@@ -11,10 +11,13 @@ examples/bench/
 ├── workload.toml           # query mix, concurrency, cost model
 ├── run_bench.py            # driver: connects, runs, writes JSON
 ├── requirements.txt        # snowflake-connector-python (unmodified)
-├── Makefile                # `make bench` / `make bench-synthetic`
+├── Makefile                # `make bench` / `make bench-synthetic` / `make routes-fixture`
 └── fixtures/               # checked-in reference runs
     ├── results-real.json       # 100×2 against a 50k-row Snowflake trial — the anchor metric
-    └── results-synthetic.json  # no-credentials sanity run
+    ├── results-synthetic.json  # no-credentials sanity run
+    ├── routes.json             # frozen `melt route` decision per workload query (POWA-163)
+    ├── melt.bench.toml         # minimal config the regen script feeds to `melt route`
+    └── regen_routes.py         # regenerates routes.json from workload.toml
 ```
 
 ## Reference numbers
@@ -53,7 +56,13 @@ export SNOWFLAKE_SCHEMA=PUBLIC
 export SNOWFLAKE_WAREHOUSE=COMPUTE_WH      # if not set, the driver uses the user's default
 export BENCH_CREDIT_RATE=3.00              # $/credit (Standard list)
 
-# 4. Run.
+# 4. Seed the bench dataset into Snowflake (idempotent — safe to rerun).
+#    Creates ANALYTICS.PUBLIC.USERS + ANALYTICS.PUBLIC.EVENTS at 50k rows
+#    each, shaped to satisfy the four templates in workload.toml.
+python3 ../../scripts/bench-seed/seed_bench.py
+
+# 5. Bring those tables into Melt's lake (one-shot sync), then run.
+docker compose run --rm melt sync run --once
 make bench
 ```
 
@@ -63,13 +72,13 @@ A successful run prints, e.g.:
 
 ```
 ── Bench complete ── (real mode)
-   results: results-20260505T082000Z.json
-   git:     622fb38…
-   snowflake  queries=100  p50=141.75ms p95=236.19ms usd=0.10181 q/$=982.22  routes={'snowflake': 100}
-   melt       queries=100  p50=156.23ms p95=245.40ms usd=0.0     q/$=∞  routes={'lake': 100}
+   results: results-20260505T083500Z.json
+   git:     8797ed6…
+   snowflake  queries=100  p50=118.32ms p95=210.75ms usd=0.088668 q/$=1127.8  routes={'snowflake': 100}
+   melt       queries=100  p50=139.56ms p95=264.99ms usd=0.0      q/$=∞       routes={'lake': 100}
    ── delta
-      $/1k queries   snowflake=1.0181  melt=0.0
-      savings/1k     $1.0181  (100.0% cheaper)
+      $/1k queries   snowflake=0.8867  melt=0.0
+      savings/1k     $0.8867  (100.0% cheaper)
       q/$ factor     melt is ∞ (all queries routed to lake — zero Snowflake cost)
 ```
 
@@ -121,6 +130,44 @@ Vary it by editing `workload.toml`. To swap in a real dbt project as the workloa
 - **Lake routing depends on sync.** If the bench tables aren't synced to the lake yet, every query falls through to Snowflake passthrough and the delta collapses. Bring up sync (`docker compose run --rm melt sync run --once`) and verify with `melt status` before running.
 - **Routing decisions are recorded once per distinct SQL.** `melt route` is deterministic per SQL string, so the harness samples it once and re-uses the answer. If you parameterize queries the routes can drift — re-run `discover_routes` on every iteration in that case.
 - **Synthetic mode is a sanity check, not a benchmark.** The latency parameters in `[synthetic]` are illustrative defaults. Don't quote synthetic numbers as a Melt savings claim.
+
+## Routing fixture (`fixtures/routes.json`)
+
+`fixtures/routes.json` is the auditable record of how Melt routes each
+query in `workload.toml`. The cost-savings claim on the project README
+only holds while every query in the bench mix continues to classify as
+`lake` — a silent router change that flipped one to `snowflake` would
+invalidate the queries-per-dollar delta without anyone noticing, so
+the fixture is gated by the CI test in
+[`crates/melt-router/tests/bench_routes_fixture.rs`](../../crates/melt-router/tests/bench_routes_fixture.rs).
+Each entry captures `route`, `reason`, `decided_by_strategy`, and
+`strategy_chain` — the same fields `melt route` prints — for one
+`[[query]]` from `workload.toml`.
+
+### Regenerate after an intentional routing change
+
+When you intentionally change router behaviour (translator, classifier,
+hybrid strategy chain, hint handling, …) and the new behaviour is the
+correct answer for these queries, refresh the fixture in lockstep:
+
+```bash
+# from examples/bench/
+make routes-fixture            # python fixtures/regen_routes.py
+
+# or from the repo root
+python3 examples/bench/fixtures/regen_routes.py
+```
+
+The script needs a `melt` binary on `PATH` (or
+`target/{debug,release}/melt`, or `MELT_BIN=<path>`) and runs
+`melt --config examples/bench/fixtures/melt.bench.toml route "<sql>"`
+once per workload entry. Output is sorted-key JSON; commit the diff
+**in the same PR** as the router change so the routing impact is
+reviewable in one place.
+
+If `cargo test -p melt-router --test bench_routes_fixture` reports
+drift but you didn't intend a routing change, do **not** rerun the
+regen — investigate the router diff first. The drift is the signal.
 
 ## What's deferred to v1.1+
 
