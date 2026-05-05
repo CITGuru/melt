@@ -104,6 +104,7 @@ where
         Some(Arc::new(ParityHarness::spawn(
             snowflake.clone(),
             router_cfg.hybrid_parity_sample_rate,
+            router_cfg.hybrid_parity_compare_mode,
             64,
         )))
     } else {

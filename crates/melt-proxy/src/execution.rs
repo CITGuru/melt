@@ -549,17 +549,42 @@ async fn execute_hybrid(
     // Offer a parity sample if the harness is up. The sampler's
     // `try_send` handles the probability roll + drop-on-full
     // backpressure internally — this call is cheap and non-blocking.
-    // We only sample when we have eager batches to digest against;
-    // drain_full=false queries come back with the first batch only,
-    // which still lets us catch the common cell-level drift cases.
+    //
+    // Plan summary is built on the proxy side (vs. inside the harness)
+    // so the WARN log is fully self-describing without the harness
+    // needing to depend on `melt-router::route` types. The eager
+    // batches are only cloned in `Hash` compare mode — `RowCount` mode
+    // ignores them, so we save the clone in the common case.
     if let Some(parity) = &input.state.parity {
         let row_count: u64 = eager.iter().map(|b| b.num_rows() as u64).sum();
+        let compare_mode = parity.compare_mode();
+        let eager_for_sample = if matches!(
+            compare_mode,
+            melt_core::HybridParityCompareMode::Hash,
+        ) {
+            eager.clone()
+        } else {
+            Vec::new()
+        };
+        let plan_summary = crate::hybrid_parity::PlanSummary {
+            strategy: plan.strategy_label().to_string(),
+            reason: format_hybrid_reason(&outcome.route),
+            fragments: plan.remote_fragments.len(),
+            attach_rewrites: plan.attach_rewrites.len(),
+            remote_table_count: count_remote_tables(plan.as_ref()),
+            estimated_remote_bytes: plan.estimated_remote_bytes,
+            chain_decided_by: plan.chain_decided_by.clone(),
+        };
         let sample = crate::hybrid_parity::ParitySample {
             query_id: uuid::Uuid::new_v4().to_string(),
+            query_hash: crate::hybrid_parity::hash_query(&input.sql),
             original_sql: input.sql.clone(),
             token: input.token.clone(),
             hybrid_row_count: row_count,
-            hybrid_eager_batches: eager.clone(),
+            hybrid_eager_batches: eager_for_sample,
+            plan_summary,
+            compare_mode,
+            sample_rate: parity.sample_rate(),
         };
         let _ = parity.sample(sample);
     }
@@ -633,4 +658,33 @@ async fn execute_hybrid(
         continuation,
         plan,
     })
+}
+
+/// Render the routing reason for the parity log line. Hybrid plans
+/// always carry a [`HybridReason`]; falls through to a generic label
+/// for non-hybrid routes (which the parity sampler should never see
+/// today, but the helper is total to keep the call site simple).
+fn format_hybrid_reason(route: &Route) -> String {
+    match route {
+        Route::Hybrid { reason, .. } => reason.to_string(),
+        Route::Lake { .. } => "Lake".to_string(),
+        Route::Snowflake { .. } => "Snowflake".to_string(),
+    }
+}
+
+/// Distinct table count across both Materialize fragments and Attach
+/// rewrites. Used purely for the parity log line so operators see
+/// fan-out without us having to log table names (PII risk).
+fn count_remote_tables(plan: &melt_core::HybridPlan) -> usize {
+    let mut seen = std::collections::HashSet::new();
+    let key = |t: &melt_core::TableRef| format!("{}.{}.{}", t.database, t.schema, t.name);
+    for frag in &plan.remote_fragments {
+        for t in &frag.scanned_tables {
+            seen.insert(key(t));
+        }
+    }
+    for rw in &plan.attach_rewrites {
+        seen.insert(key(&rw.original));
+    }
+    seen.len()
 }

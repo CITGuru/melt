@@ -16,7 +16,7 @@ RUNS   ?= 100
 CONC   ?= 4
 OUT    ?= results-$(shell date -u +%Y%m%dT%H%M%SZ).json
 
-.PHONY: help install bench bench-synthetic up down logs clean
+.PHONY: help install bench bench-synthetic bench-parity up down logs clean
 
 help:
 	@echo "make install            - pip install requirements.txt"
@@ -24,6 +24,7 @@ help:
 	@echo "make down               - docker compose down --volumes"
 	@echo "make bench              - run real bench, write to $(OUT)"
 	@echo "make bench-synthetic    - run no-credentials bench, write a fixture"
+	@echo "make bench-parity       - run real bench + assert hybrid parity (POWA-162)"
 	@echo "make logs               - tail melt logs"
 	@echo "make clean              - rm results-*.json (keeps fixtures/)"
 
@@ -52,6 +53,17 @@ bench-synthetic:
 	mkdir -p fixtures
 	$(PYTHON) run_bench.py --synthetic --runs $(RUNS) --concurrency $(CONC) \
 		--out fixtures/results-synthetic.json
+
+# Parity-checked bench (POWA-162 §A2). Asserts that the proxy's
+# hybrid parity sampler ran ≥ PARITY_MIN_SAMPLES queries with 0
+# mismatches over the workload. Requires the proxy to be running
+# with `[router].hybrid_parity_sample_rate = 1.0` (or high enough
+# that the sample count is reached for the configured RUNS).
+PARITY_MIN_SAMPLES ?= 100
+bench-parity:
+	$(PYTHON) run_bench.py --parity-sampler \
+		--parity-min-samples $(PARITY_MIN_SAMPLES) \
+		--runs $(RUNS) --concurrency $(CONC) --out $(OUT)
 
 clean:
 	@find . -maxdepth 1 -name "results-*.json" -print -delete
