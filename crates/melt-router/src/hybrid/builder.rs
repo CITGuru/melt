@@ -379,6 +379,11 @@ fn walk_expr_for_subqueries(
     min_scans: usize,
 ) {
     match expr {
+        // Clippy's `collapsible_match` suggestion (a guarded arm calling
+        // `try_collapse_query(q.as_mut(), …)` in the guard) doesn't
+        // compile: pattern-bound bindings are immutable until the guard
+        // ends, so `q.as_mut()` is rejected by the borrow checker.
+        #[allow(clippy::collapsible_match)]
         Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
             if !try_collapse_query(q.as_mut(), session, registry, fragments, min_scans) {
                 collapse_in_query(q.as_mut(), session, registry, fragments, min_scans);
@@ -605,7 +610,7 @@ fn rewrite_attach_in_place(
     if let ControlFlow::Break(_) = res {
         return Err("relation walk aborted".into());
     }
-    for (slot, new) in ast.iter_mut().zip(owned.into_iter()) {
+    for (slot, new) in ast.iter_mut().zip(owned) {
         *slot = new;
     }
     Ok(())

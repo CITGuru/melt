@@ -34,7 +34,7 @@ pub fn rewrite_views(
     if let ControlFlow::Break(_) = res {
         return Err("enforce: relation walk aborted".into());
     }
-    for (slot, new) in ast.iter_mut().zip(owned.into_iter()) {
+    for (slot, new) in ast.iter_mut().zip(owned) {
         *slot = new;
     }
     Ok(())
