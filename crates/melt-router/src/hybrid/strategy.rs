@@ -83,7 +83,7 @@ impl<'a> StrategyContext<'a> {
     /// (we can't make a sound size-driven decision with partial
     /// stats).
     pub fn total_rows(&self) -> u64 {
-        if self.per_table_rows.iter().any(|r| *r == 0) {
+        if self.per_table_rows.contains(&0) {
             return 0;
         }
         self.per_table_rows.iter().sum()
@@ -91,7 +91,7 @@ impl<'a> StrategyContext<'a> {
 
     /// Sum of per-table bytes. Same partial-stats handling.
     pub fn total_bytes(&self) -> u64 {
-        if self.per_table_bytes.iter().any(|b| *b == 0) {
+        if self.per_table_bytes.contains(&0) {
             return 0;
         }
         self.per_table_bytes.iter().sum()
@@ -239,6 +239,13 @@ pub struct ChainStrategy {
 impl ChainStrategy {
     pub fn new(members: Vec<Box<dyn PlacementStrategy>>) -> Self {
         Self { members }
+    }
+
+    /// Names of every member, in chain order. Used by the builder to
+    /// stamp `HybridPlan::strategy_chain` so `melt route` output can
+    /// show the configured chain even when every member abstains.
+    pub fn member_names(&self) -> Vec<&'static str> {
+        self.members.iter().map(|s| s.name()).collect()
     }
 
     /// Walk the chain and return both the decision AND the name
