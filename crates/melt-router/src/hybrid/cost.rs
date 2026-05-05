@@ -59,6 +59,7 @@ impl Cost {
         self.network_seconds + self.local_seconds
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn add(self, other: Cost) -> Cost {
         Cost {
             network_seconds: self.network_seconds + other.network_seconds,
