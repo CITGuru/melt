@@ -142,13 +142,13 @@ cargo run -p melt-audit -- \
   --out-dir /tmp/melt-audit-demo
 ```
 
-This drives the full local pipeline (classify → bucket → aggregate → render) on a 10-row synthetic `QUERY_HISTORY` export and writes:
+This drives the full local pipeline (classify → bucket → aggregate → render) on a ~10k-row synthetic `QUERY_HISTORY` export — agent-driven dbt project shape, mostly XSMALL/SMALL warehouses, hot-table + long-tail mix — and writes:
 
 - stdout: spec §1 summary table + top routable patterns
 - `melt-audit-ACME-DEMO-<date>.json` — schema-versioned JSON (`schema_version: 1`)
 - `melt-audit-ACME-DEMO-<date>.talkingpoints.md` — paste-into-Slack markdown
 
-Fixture mode never opens a network connection, so `git clone` → first audit run is a single `cargo build` away.
+Fixture mode never opens a network connection, so `git clone` → first audit run is a single `cargo build` away. The corpus is reproducible: regenerate with `python3 examples/audit/generate-fixture.py` (seed pinned in the script).
 
 ### Print the Snowflake grants (paste-and-go)
 
