@@ -21,6 +21,7 @@ pub mod grants;
 pub mod model;
 pub mod output;
 pub mod redact;
+pub mod share;
 pub mod snowflake;
 
 pub use aggregate::build_audit_output;
@@ -34,6 +35,7 @@ pub use model::{
 };
 pub use output::{render_json, render_stdout_table, render_talkingpoints};
 pub use redact::redact_literals;
+pub use share::{redact_for_share, ShareArgs, DEFAULT_SHARE_ENDPOINT};
 
 /// Default `--credit-price` in USD per credit. Snowflake on-demand list
 /// price as of the launch window; operators override with the flag.

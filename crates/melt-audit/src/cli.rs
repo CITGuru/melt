@@ -15,11 +15,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use chrono::Utc;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 use crate::aggregate::{build_audit_output, AggregateConfig};
 use crate::fixture::load_query_history_csv;
 use crate::output::{output_stem, render_json, render_stdout_table, render_talkingpoints};
+use crate::share::{self, ShareArgs};
 use crate::snowflake::{build_client, run_pull, AuditAuth, PullPlan, DEFAULT_LIMIT_ROWS};
 use crate::{
     DEFAULT_CREDIT_PRICE_USD, DEFAULT_TOP_N, DEFAULT_WAREHOUSE, GRANTS_SQL, SUPPORTED_WINDOW_DAYS,
@@ -28,6 +29,12 @@ use crate::{
 /// `melt audit` flags. Used both as the binary's top-level parser
 /// (via `clap::Parser`) and as a flattened subcommand arg-bag inside
 /// `melt-cli` (via `clap::Args`).
+///
+/// Subcommands:
+///
+/// * `share` — opt-in upload of a prior audit's JSON to
+///   `getmelt.com/audit/share`. The default (no subcommand) runs the
+///   audit pipeline against the inline flags below.
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "melt-audit",
@@ -35,6 +42,11 @@ use crate::{
     long_about = None,
 )]
 pub struct AuditArgs {
+    /// Optional subcommand. When omitted, the default audit pipeline
+    /// runs against the inline flags below.
+    #[command(subcommand)]
+    pub command: Option<AuditCommand>,
+
     /// Snowflake account locator — same identifier the driver uses.
     /// Required for live mode; in `--fixture` mode acts as the output
     /// filename suffix and the JSON `account` field. Optional when
@@ -101,6 +113,18 @@ pub struct AuditArgs {
     pub no_color: bool,
 }
 
+/// `melt audit <subcommand>` table. Currently only `share`; kept as
+/// an enum so future opt-in surfaces (e.g. `melt audit benchmark`)
+/// have a clear home.
+#[derive(Subcommand, Debug, Clone)]
+pub enum AuditCommand {
+    /// Opt-in upload of a prior `melt audit` JSON artifact to
+    /// `getmelt.com/audit/share`. Prompts for confirmation and
+    /// shows the exact bytes that will leave the box; pass `--yes`
+    /// to skip the prompt in CI.
+    Share(ShareArgs),
+}
+
 /// Drive a parsed [`AuditArgs`] to an [`ExitCode`].
 pub fn run(args: AuditArgs) -> ExitCode {
     ExitCode::from(run_status(args))
@@ -113,6 +137,13 @@ pub fn run(args: AuditArgs) -> ExitCode {
 /// raw byte keeps the distinction between usage errors (2), runtime
 /// failures (1), and success (0) intact.
 pub fn run_status(args: AuditArgs) -> u8 {
+    if let Some(AuditCommand::Share(share_args)) = args.command.clone() {
+        // The share subcommand is fully self-contained (its own
+        // file-IO and HTTP egress); short-circuit before any of the
+        // audit-pipeline flag validation runs.
+        return share::run(share_args);
+    }
+
     if args.print_grants {
         println!("{GRANTS_SQL}");
         return 0;

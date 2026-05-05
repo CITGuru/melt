@@ -2475,6 +2475,7 @@ dependencies = [
  "melt-core",
  "melt-router",
  "melt-snowflake",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlparser",

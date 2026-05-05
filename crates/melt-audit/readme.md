@@ -144,10 +144,45 @@ values pasted into ad-hoc queries (PII, secrets). Every literal is
 redacted to `?` before it hits any output artifact — JSON,
 talking-points, or the stdout `top_patterns` block.
 
-`melt audit share` (opt-in upload to `getmelt.com/audit/share`) is a
-separate subcommand and is **not** part of this binary today; see
-[POWA-89#document-spec](/POWA/issues/POWA-89#document-spec) §5 for
-the rollout.
+### Sharing audit results
+
+`melt audit share` is the **opt-in** path that uploads a redacted
+copy of the audit JSON to `getmelt.com/audit/share` and returns a
+short URL the operator can include in a POC ask. It is never
+automatic, and never runs without an explicit `share` invocation.
+
+```bash
+# Confirm-and-upload — prints the exact bytes about to leave the
+# box and prompts `Upload? [y/N]`:
+melt-audit share melt-audit-ACME-DEMO-2026-05-04.json
+
+# CI / scripted: skip the prompt with --yes
+melt-audit share melt-audit-ACME-DEMO-2026-05-04.json --yes
+
+# Auto-pick the newest melt-audit-*.json in --out-dir:
+melt-audit share --out-dir /tmp/melt-audit-demo --yes
+```
+
+Privacy guarantees on top of the literal redaction the audit
+pipeline already applied:
+
+- The talking-points markdown file is **never** read by the share
+  path. Operators sometimes paste real numbers into it; the share
+  path opens only the JSON artifact you point it at.
+- `top_patterns[].pattern_redacted` is trimmed to a verb + table
+  shape (`SELECT … FROM A.B.C …`) — predicate column lists, join
+  structure, `GROUP BY` / `ORDER BY` clauses, etc. are dropped.
+- With `--anonymize` (default for `share`), the table identifier
+  below the schema level is stripped:
+  `ANALYTICS.PUBLIC.EVENTS` → `ANALYTICS.PUBLIC.<redacted>`.
+- A `melt-audit-…-shared.json` receipt is written next to the source
+  JSON so the operator has a verifiable record of exactly what was
+  uploaded.
+
+Pass `--anonymize=false` only when sharing internally where the
+table-level identifiers are safe to disclose. Pass `--endpoint
+<url>` to point the client at a non-default endpoint (used by the
+integration tests that don't rely on the live share endpoint).
 
 ## Accuracy bar
 
