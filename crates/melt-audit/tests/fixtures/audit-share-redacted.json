@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "account": "ACME-DEMO",
+  "window": {
+    "start": "2026-04-04T00:00:00Z",
+    "end": "2026-05-04T00:00:00Z",
+    "days": 30
+  },
+  "total_queries": 12345,
+  "total_spend_usd": 9876.54,
+  "dollar_per_query_baseline": 0.8,
+  "routable_static": {
+    "count": 4000,
+    "pct": 32.4,
+    "dollar_per_query_post": 0.5,
+    "dollars_saved": 3000.0,
+    "annualized": 36500.0
+  },
+  "routable_conservative": {
+    "count": 2000,
+    "pct": 16.2,
+    "dollar_per_query_post": 0.6,
+    "dollars_saved": 2000.0,
+    "annualized": 24000.0
+  },
+  "top_patterns": [
+    {
+      "rank": 1,
+      "freq": 500,
+      "avg_ms": 1200,
+      "table_fqn": "ANALYTICS.PUBLIC.<redacted>",
+      "pattern_redacted": "SELECT … FROM ANALYTICS.PUBLIC.<redacted> …",
+      "est_dollars_in_window": 1500.0
+    },
+    {
+      "rank": 2,
+      "freq": 200,
+      "avg_ms": 800,
+      "table_fqn": "ANALYTICS.PUBLIC.<redacted>",
+      "pattern_redacted": "SELECT … FROM ANALYTICS.PUBLIC.<redacted>",
+      "est_dollars_in_window": 600.0
+    },
+    {
+      "rank": 3,
+      "freq": 100,
+      "avg_ms": 400,
+      "table_fqn": "PUBLIC.<redacted>",
+      "pattern_redacted": "SELECT … FROM PUBLIC.<redacted> …",
+      "est_dollars_in_window": 300.0
+    }
+  ],
+  "passthrough_reasons_breakdown": {
+    "writes": 10,
+    "snowflake_features": 5,
+    "parse_failed": 0,
+    "no_tables": 1
+  },
+  "confidence_band_pct": 20,
+  "disclaimers": [
+    "confidence band ±20%",
+    "static analysis only — no DuckDB execution",
+    "cloud-services credits ignored",
+    "warehouse credit pricing assumed flat at --credit-price"
+  ]
+}

@@ -135,3 +135,57 @@ You should see:
 - A `POST` to the configured Formspark endpoint when you submit a test email, with `utm_source` and `utm_campaign` in the JSON body.
 
 In dev tools, blocking ad-trackers/extensions may suppress the Plausible script — disable them or use an incognito window before claiming the analytics is broken.
+
+## Audit-share endpoint
+
+`/audit/share` (POST) and `/audit/<short-id>` (GET) are Vercel serverless functions that receive opt-in `melt audit share` uploads from the CLI ([POWA-187](https://github.com/CITGuru/melt/issues/187)) and render the resulting savings projection as a shareable HTML page ([POWA-189](https://github.com/CITGuru/melt/issues/189)). Source lives in `site/api/audit/` (handlers) and `site/lib/` (validation, storage, rendering).
+
+### POST `/audit/share`
+
+- Accepts `application/json` matching the audit JSON envelope (`schema_version: 1`).
+- Strict schema validation; malformed payloads → `400` with a structured `error` body.
+- Defense-in-depth redaction check: rejects (`422`) any `pattern_redacted` that goes past the CLI's verb-only trim or still contains literals (numbers, quoted strings, `?`/`$N`/`:name` placeholders, comparison operators).
+- Body cap: `> 1 MiB` → `413`.
+- Per-IP rate limit: 20 submissions / IP / hour → `429` (with `Retry-After`).
+- On success, returns `200 OK` with `{ "url": "<base>/audit/<short-id>" }`.
+- No auth in v1 — anonymous prospect submissions only.
+
+### GET `/audit/<short-id>`
+
+- Renders the savings projection from the stored JSON as a single-page HTML artifact.
+- Uses **only** the uploaded JSON — no DB enrichment.
+- Cache: `public, max-age=300, s-maxage=3600`.
+- Friendly `404` page when the id doesn't resolve. No `noindex` by default — these URLs are designed to be shared.
+
+### Storage
+
+- Production: Upstash Redis (Vercel marketplace integration). Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` on the Vercel project.
+- Dev / `vercel dev` without Redis provisioned: process-local Map (non-durable, intentional). The handler logic is identical; only the persistence layer changes.
+
+### Local development
+
+```bash
+cd site
+npm install
+npm test               # vitest: validator, renderer, end-to-end POST→GET roundtrip
+npm run typecheck      # tsc --noEmit
+
+npm i -g vercel
+vercel dev             # serves both static site + /api/audit/* functions on :3000
+
+# In another shell:
+curl -X POST http://localhost:3000/api/audit/share \
+  -H 'Content-Type: application/json' \
+  -d @../crates/melt-audit/tests/fixtures/audit-share-redacted.json
+# → { "url": "http://localhost:3000/audit/<short-id>" }
+
+open "http://localhost:3000/audit/<short-id>"
+```
+
+The `vercel.json` rewrites surface the public URLs (`/audit/share`, `/audit/<id>`) on top of the underlying `/api/audit/*` paths, so the same `curl` works against both `localhost:3000/audit/share` and `https://getmelt.com/audit/share`.
+
+### Privacy
+
+- The CLI ([POWA-187](https://github.com/CITGuru/melt/issues/187)) is the source of truth for what gets uploaded. This endpoint validates that what arrived is plausibly redacted; it is **not** the primary privacy guarantee.
+- No analytics events on the POST handler — submissions are not correlated back to a session.
+- Stored payloads contain no PII by virtue of CLI redaction. Operators paranoid about a particular field can grep their `melt-audit-*-shared.json` artifact (the CLI writes a receipt of exactly the bytes uploaded) before sharing the URL.
