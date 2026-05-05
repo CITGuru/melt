@@ -39,3 +39,10 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 rand = "0.8"
 sha2 = "0.10"
+
+[dev-dependencies]
+# Used by `tests/pool_saturation_e2e.rs` to exercise the same
+# `deadpool::Pool::timeout_get` primitive `DuckLakePool::read` /
+# `IcebergPool::read` use under reader-pool saturation. See KI-001
+# mitigation #2 in `docs/internal/KNOWN_ISSUES.md` (POWA-164).
+deadpool = { workspace = true }
