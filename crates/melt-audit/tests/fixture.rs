@@ -1,8 +1,14 @@
 //! Snapshot acceptance test for `melt audit`'s local-processing
-//! pipeline. Loads `examples/audit/query-history-fixture.csv`,
-//! runs `aggregate`, and asserts the resulting JSON is within
-//! ±2 percentage points of `examples/audit/ground-truth.json`
-//! per spec §8 and POWA-140's "smallest test that proves it".
+//! pipeline. Loads `examples/audit/query-history-fixture.csv` (the
+//! ~10k synthetic agent-driven dbt mix from POWA-146), runs
+//! `aggregate`, and asserts the resulting JSON is within ±2
+//! percentage points of `examples/audit/ground-truth.json` per spec
+//! §8 and POWA-140's "smallest test that proves it".
+//!
+//! Regenerate the fixture + ground-truth pair with
+//! `python3 examples/audit/generate-fixture.py` (seed pinned in the
+//! script). After regenerating, sync the count fields in
+//! `ground-truth.json` to whatever the new corpus produces.
 //!
 //! No Snowflake hit. No DuckDB. Pure local pipeline.
 
