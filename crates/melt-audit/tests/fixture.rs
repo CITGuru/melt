@@ -91,7 +91,10 @@ fn fixture_static_and_conservative_within_tolerance() {
 
     // Top patterns: at least one entry, and the first table matches
     // the ground-truth pin.
-    assert!(!out.top_patterns.is_empty(), "top_patterns should be populated");
+    assert!(
+        !out.top_patterns.is_empty(),
+        "top_patterns should be populated"
+    );
     let expected_top_table = truth["top_patterns_first_table"].as_str().unwrap();
     assert_eq!(out.top_patterns[0].table_fqn, expected_top_table);
 }

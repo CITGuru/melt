@@ -317,22 +317,12 @@ fn collapse_in_query(
     if let SetExpr::Select(select) = q.body.as_mut() {
         for item in select.projection.iter_mut() {
             walk_select_item_for_subqueries(
-                item,
-                session,
-                registry,
-                fragments,
-                min_scans,
-                decided_by,
+                item, session, registry, fragments, min_scans, decided_by,
             );
         }
         if let Some(where_expr) = select.selection.as_mut() {
             walk_expr_for_subqueries(
-                where_expr,
-                session,
-                registry,
-                fragments,
-                min_scans,
-                decided_by,
+                where_expr, session, registry, fragments, min_scans, decided_by,
             );
         }
         for join_or_table in select.from.iter_mut() {
@@ -445,6 +435,11 @@ fn walk_expr_for_subqueries(
     decided_by: &str,
 ) {
     match expr {
+        // Clippy's `collapsible_match` suggestion (a guarded arm calling
+        // `try_collapse_query(q.as_mut(), …)` in the guard) doesn't
+        // compile: pattern-bound bindings are immutable until the guard
+        // ends, so `q.as_mut()` is rejected by the borrow checker.
+        #[allow(clippy::collapsible_match)]
         Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
             if !try_collapse_query(
                 q.as_mut(),
@@ -512,12 +507,7 @@ fn walk_expr_for_subqueries(
                     } = a
                     {
                         walk_expr_for_subqueries(
-                            e,
-                            session,
-                            registry,
-                            fragments,
-                            min_scans,
-                            decided_by,
+                            e, session, registry, fragments, min_scans, decided_by,
                         );
                     }
                 }
@@ -714,7 +704,7 @@ fn rewrite_attach_in_place(
     if let ControlFlow::Break(_) = res {
         return Err("relation walk aborted".into());
     }
-    for (slot, new) in ast.iter_mut().zip(owned.into_iter()) {
+    for (slot, new) in ast.iter_mut().zip(owned) {
         *slot = new;
     }
     Ok(())

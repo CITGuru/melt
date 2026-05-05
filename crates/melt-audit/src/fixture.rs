@@ -58,7 +58,8 @@ pub fn load_query_history_csv(path: &Path) -> Result<Vec<QueryHistoryRow>> {
 
     let mut out = Vec::new();
     for (lineno, line) in lines.enumerate() {
-        let line = line.with_context(|| format!("reading row {} of {}", lineno + 2, path.display()))?;
+        let line =
+            line.with_context(|| format!("reading row {} of {}", lineno + 2, path.display()))?;
         if line.trim().is_empty() {
             continue;
         }

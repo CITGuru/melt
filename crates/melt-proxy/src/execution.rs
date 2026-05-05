@@ -558,10 +558,8 @@ async fn execute_hybrid(
     if let Some(parity) = &input.state.parity {
         let row_count: u64 = eager.iter().map(|b| b.num_rows() as u64).sum();
         let compare_mode = parity.compare_mode();
-        let eager_for_sample = if matches!(
-            compare_mode,
-            melt_core::HybridParityCompareMode::Hash,
-        ) {
+        let eager_for_sample = if matches!(compare_mode, melt_core::HybridParityCompareMode::Hash,)
+        {
             eager.clone()
         } else {
             Vec::new()

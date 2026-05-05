@@ -138,9 +138,8 @@ pub fn audit_session() -> SessionInfo {
 fn is_system_table(t: &TableRef) -> bool {
     let db = t.database.to_ascii_uppercase();
     let schema = t.schema.to_ascii_uppercase();
-    schema == "INFORMATION_SCHEMA"
-        || db == "SNOWFLAKE"
-        || db == "MELT_AUDIT_UNQUALIFIED" // synthetic default
+    schema == "INFORMATION_SCHEMA" || db == "SNOWFLAKE" || db == "MELT_AUDIT_UNQUALIFIED"
+    // synthetic default
 }
 
 #[cfg(test)]
