@@ -69,10 +69,11 @@ enum Command {
         action: debug_cmd::DebugAction,
     },
     /// Local-only `$/savings` projection from Snowflake
-    /// `ACCOUNT_USAGE.QUERY_HISTORY`. No data leaves the host;
-    /// upload is a separate `melt audit share` subcommand
-    /// (POWA-141, not yet wired).
-    Audit(audit_cmd::AuditArgs),
+    /// `ACCOUNT_USAGE.QUERY_HISTORY`. No data leaves the host by
+    /// default; the optional `share` subcommand is the opt-in
+    /// upload path. Boxed because `AuditArgs` is the largest variant
+    /// in this enum (clippy `large_enum_variant`).
+    Audit(Box<audit_cmd::AuditArgs>),
 }
 
 #[derive(Subcommand, Debug)]
@@ -147,7 +148,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // the inner exit code verbatim so the caller can distinguish
     // usage errors (2) from runtime failures (1) from success (0).
     if let Command::Audit(args) = cli.command {
-        std::process::exit(i32::from(audit_cmd::run_status(args)));
+        std::process::exit(i32::from(audit_cmd::run_status(*args)));
     }
 
     // `debug` subcommands build a read-only backend connection and
