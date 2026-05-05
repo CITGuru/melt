@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "_note": "Ground-truth values for the fixture in query-history-fixture.csv. The pct fields are asserted by crates/melt-audit/tests/fixture.rs within ±2 pp; the rest is reference-only.",
+  "account": "ACME-DEMO",
+  "total_queries": 10,
+  "routable_static": {
+    "count": 6,
+    "pct": 60.0
+  },
+  "routable_conservative": {
+    "count": 6,
+    "pct": 60.0,
+    "_note_top_n": "with default --top-n 20 and 3 tables in the fixture, conservative collapses to static; this is intentional to keep the assertion stable. The dedicated top-N test in tests/fixture.rs flexes top_n=1 separately."
+  },
+  "passthrough_reasons_breakdown": {
+    "writes": 1,
+    "snowflake_features": 2,
+    "parse_failed": 1,
+    "no_tables": 0
+  },
+  "top_patterns_first_table": "ANALYTICS.PUBLIC.EVENTS"
+}

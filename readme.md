@@ -126,6 +126,78 @@ cargo run --bin melt -- --config melt.local.toml start        # proxy only
 cargo run --bin melt -- --config melt.local.toml sync run     # sync only
 ```
 
+## Quick start: `melt audit` — `$/savings` projection
+
+`melt audit` is a read-only CLI that reads `SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` and produces an account-specific dollar-savings projection — no DuckDB execution, nothing leaves the box. See [the spec](#) for the full output format.
+
+### Try it on the bundled fixture (no Snowflake required)
+
+```bash
+cargo build -p melt-audit
+
+cargo run -p melt-audit -- \
+  --fixture examples/audit/query-history-fixture.csv \
+  --account ACME-DEMO \
+  --window 30d \
+  --out-dir /tmp/melt-audit-demo
+```
+
+This drives the full local pipeline (classify → bucket → aggregate → render) on a 10-row synthetic `QUERY_HISTORY` export and writes:
+
+- stdout: spec §1 summary table + top routable patterns
+- `melt-audit-ACME-DEMO-<date>.json` — schema-versioned JSON (`schema_version: 1`)
+- `melt-audit-ACME-DEMO-<date>.talkingpoints.md` — paste-into-Slack markdown
+
+Fixture mode never opens a network connection, so `git clone` → first audit run is a single `cargo build` away.
+
+### Print the Snowflake grants (paste-and-go)
+
+```bash
+cargo run -p melt-audit -- --print-grants
+```
+
+Outputs the role-creation snippet from spec §2:
+
+```sql
+CREATE ROLE IF NOT EXISTS MELT_AUDIT;
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE MELT_AUDIT;
+GRANT USAGE ON WAREHOUSE <WAREHOUSE_NAME> TO ROLE MELT_AUDIT;
+GRANT ROLE MELT_AUDIT TO USER <USER_NAME>;
+```
+
+### Live mode (Snowflake account)
+
+After running the snippet from `--print-grants` against your Snowflake
+account, point the binary at your account locator with either a PAT
+(`--token`) or an RSA private key (`--private-key` + `--user`):
+
+```bash
+# PAT (programmatic access token)
+cargo run -p melt-audit -- \
+  --account <locator> \
+  --token   <pat> \
+  --window  30d \
+  --warehouse XSMALL
+
+# RSA key-pair (production-grade)
+cargo run -p melt-audit -- \
+  --account     <locator> \
+  --user        MELT_AUDIT_SVC \
+  --private-key /path/to/rsa_key.p8 \
+  --window      30d
+```
+
+Live mode runs under the `MELT_AUDIT` role and reads
+`SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` and
+`WAREHOUSE_METERING_HISTORY` only. On any auth or grant failure the
+binary exits non-zero with a remediation hint that names the role and
+the `IMPORTED PRIVILEGES` grant — re-run `--print-grants` and have a
+Snowflake admin apply the snippet, then retry.
+
+`--password` is intentionally rejected: Snowflake's REST API has no
+password flow, and the `melt audit share` upload (POWA-141) will gate
+on the same MELT_AUDIT credential.
+
 ## Documentation
 
 - [Overview](docs/overview.md) — what Melt is, how it's split into services, the three routes.
