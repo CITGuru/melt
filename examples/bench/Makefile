@@ -16,7 +16,7 @@ RUNS   ?= 100
 CONC   ?= 4
 OUT    ?= results-$(shell date -u +%Y%m%dT%H%M%SZ).json
 
-.PHONY: help install bench bench-synthetic up down logs clean
+.PHONY: help install bench bench-synthetic routes-fixture up down logs clean
 
 help:
 	@echo "make install            - pip install requirements.txt"
@@ -24,6 +24,7 @@ help:
 	@echo "make down               - docker compose down --volumes"
 	@echo "make bench              - run real bench, write to $(OUT)"
 	@echo "make bench-synthetic    - run no-credentials bench, write a fixture"
+	@echo "make routes-fixture     - regenerate fixtures/routes.json from workload.toml"
 	@echo "make logs               - tail melt logs"
 	@echo "make clean              - rm results-*.json (keeps fixtures/)"
 
@@ -52,6 +53,13 @@ bench-synthetic:
 	mkdir -p fixtures
 	$(PYTHON) run_bench.py --synthetic --runs $(RUNS) --concurrency $(CONC) \
 		--out fixtures/results-synthetic.json
+
+# Regenerate the routing golden fixture. Run after an intentional router
+# change; the CI test in `crates/melt-router/tests/bench_routes_fixture.rs`
+# fails on any drift from this file. Anchored to POWA-163 / §A6 of the
+# launch-checklist.
+routes-fixture:
+	$(PYTHON) fixtures/regen_routes.py
 
 clean:
 	@find . -maxdepth 1 -name "results-*.json" -print -delete
