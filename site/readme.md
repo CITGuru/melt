@@ -46,6 +46,7 @@ Notable spots:
 - **Hero headline** — search for `Cut your Snowflake bill`.
 - **Compatibility strip** — the `.compat` block lists drivers/tools. Keep it honest — only add things that actually work.
 - **Routes tab content** — each `.tabs .panel` block is one route. Code samples are illustrative, not literal CLI captures.
+- **Demo CTA** — the `.demo-cta` aside at the end of `#start` points at `examples/agent-cost-demo/`. Swap `href` to the embedded asciinema cast once it lands; keep the `data-event="demo_cta_click"` attribute so attribution survives.
 - **Footer doc links** — point at `github.com/CITGuru/melt/blob/main/...` so they work from a deployed Vercel site (markdown isn't rendered by the static host).
 
 ## Custom domain
@@ -81,6 +82,7 @@ Update those three values once accounts are provisioned. The Plausible script ta
   - `git_clone_copy` — clicks on the copy button next to the `git clone …` snippet.
   - `snippet_copy` — copy clicks on other quickstart snippets.
   - `docs_click` — clicks on any link to `docs/…` on GitHub.
+  - `demo_cta_click` — click on the `examples/agent-cost-demo/` CTA below the quickstart.
   - `waitlist_signup` — form submission success.
   - `routes_tab_view` — switching the routes tab strip.
   - Outbound links to `github.com/*` are auto-tracked by the `outbound-links` extension.

@@ -294,6 +294,25 @@
   .card h3 { margin: 0 0 8px; font-size: 18px; }
   .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
 
+  .demo-cta {
+    margin-top: 32px;
+    padding: 22px 24px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--bg);
+    display: flex; flex-wrap: wrap; gap: 16px 24px;
+    align-items: center; justify-content: space-between;
+  }
+  .demo-cta .copy { flex: 1 1 360px; min-width: 0; }
+  .demo-cta h3 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.01em; }
+  .demo-cta p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .demo-cta p code {
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+    font-size: 0.92em;
+  }
+  .demo-cta .btn { white-space: nowrap; }
+
   .closing { text-align: center; padding: 88px 0; }
   .closing h2 { margin-bottom: 16px; }
   .closing .sub { margin-left: auto; margin-right: auto; }
@@ -576,6 +595,21 @@ conn = snowflake.connector.connect(
 conn.cursor().execute("SELECT IFF(1 > 0, 'yes', 'no')").fetchall()
 # → [('yes',)]</code></pre>
 </div>
+
+    <aside class="demo-cta" id="demo-cta">
+      <div class="copy">
+        <h3>Or skip the install and see the numbers.</h3>
+        <p>
+          A 200-query agent workload run twice — once forced through Snowflake,
+          once through Melt's router — printing <code>$/query</code> before vs
+          after. No Snowflake account, no proxy build, &lt;2s on a laptop.
+        </p>
+      </div>
+      <a class="btn primary"
+         href="https://github.com/CITGuru/melt/tree/main/examples/agent-cost-demo"
+         data-event="demo_cta_click"
+         data-event-target="start_section">Open the demo ↗</a>
+    </aside>
   </div>
 </section>
 
