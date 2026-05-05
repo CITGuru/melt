@@ -6,11 +6,12 @@
 //! - `--fixture <csv>` — local-only run against a `QUERY_HISTORY`
 //!   CSV export. Drives the bundled `examples/audit/` fixture, the
 //!   integration test, and the README quickstart.
-//! - live mode (`--account` + auth) — pulls `ACCOUNT_USAGE.QUERY_HISTORY`
-//!   from Snowflake. Wire-up of the HTTP path is the follow-up commit
-//!   on this branch.
+//! - live mode (`--account` + `--token`/`--private-key`) — pulls
+//!   `ACCOUNT_USAGE.QUERY_HISTORY` from Snowflake through
+//!   [`crate::snowflake::run_pull`] and rolls the result through the
+//!   same aggregator the fixture path uses.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use chrono::Utc;
@@ -19,6 +20,7 @@ use clap::Parser;
 use crate::aggregate::{build_audit_output, AggregateConfig};
 use crate::fixture::load_query_history_csv;
 use crate::output::{output_stem, render_json, render_stdout_table, render_talkingpoints};
+use crate::snowflake::{build_client, run_pull, AuditAuth, PullPlan, DEFAULT_LIMIT_ROWS};
 use crate::{
     DEFAULT_CREDIT_PRICE_USD, DEFAULT_TOP_N, DEFAULT_WAREHOUSE, GRANTS_SQL, SUPPORTED_WINDOW_DAYS,
 };
@@ -101,62 +103,157 @@ pub struct AuditArgs {
 
 /// Drive a parsed [`AuditArgs`] to an [`ExitCode`].
 pub fn run(args: AuditArgs) -> ExitCode {
+    ExitCode::from(run_status(args))
+}
+
+/// Same as [`run`] but returns the raw exit-code byte. Used by
+/// `melt-cli`'s `audit` subcommand wrapper, which has to call
+/// `std::process::exit` itself (the wrapper runs inside `tokio::main`,
+/// where returning an `ExitCode` would be swallowed). Exposing the
+/// raw byte keeps the distinction between usage errors (2), runtime
+/// failures (1), and success (0) intact.
+pub fn run_status(args: AuditArgs) -> u8 {
     if args.print_grants {
         println!("{GRANTS_SQL}");
-        return ExitCode::SUCCESS;
+        return 0;
     }
 
     let window_days = match parse_window(&args.window) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("error: {e}");
-            return ExitCode::from(2);
+            return 2;
         }
     };
 
     if let Some(fixture_path) = args.fixture.clone() {
         return match run_fixture(&args, &fixture_path, window_days) {
-            Ok(code) => code,
+            Ok(_) => 0,
             Err(e) => {
                 eprintln!("melt audit (fixture mode) failed: {e:#}");
-                ExitCode::from(1)
+                1
             }
         };
     }
 
-    // Live Snowflake mode. The HTTP pull lives in `crate::snowflake`
-    // and is still stubbed; until it's wired in, surface a remediation
-    // hint that names the MELT_AUDIT role and the missing-grants
-    // signal so the message reads correctly to a Snowflake DBA
-    // (acceptance #5).
-    let Some(account) = args.account.as_deref() else {
-        eprintln!(
-            "error: --account is required in live mode. \
-             For an offline test pass --fixture <csv-path>; for the \
-             role-creation snippet pass --print-grants."
-        );
-        return ExitCode::from(2);
+    match run_live(&args, window_days) {
+        Ok(_) => 0,
+        Err(LiveError::Usage(e)) => {
+            eprintln!("error: {e}");
+            2
+        }
+        Err(LiveError::Runtime(e)) => {
+            // The remediation hint (role + grants + `--print-grants`
+            // pointer) is baked into the error chain by
+            // `snowflake::run_pull`. Print the full chain so a
+            // Snowflake DBA sees the upstream error and the fix in
+            // one block (acceptance #5).
+            eprintln!("melt audit: {e:#}");
+            1
+        }
+    }
+}
+
+/// Exit-code lane for the live mode. `Usage` collapses to exit 2
+/// (matching clap-style usage errors); `Runtime` collapses to exit 1
+/// (matching the fixture-mode failure path). Keeping them split lets
+/// `melt-cli`'s wrapper preserve the same distinction operators see
+/// from the standalone `melt-audit` binary.
+enum LiveError {
+    Usage(anyhow::Error),
+    Runtime(anyhow::Error),
+}
+
+fn run_live(args: &AuditArgs, window_days: u32) -> Result<(), LiveError> {
+    let Some(account) = args.account.clone() else {
+        return Err(LiveError::Usage(anyhow::anyhow!(
+            "--account is required in live mode. For an offline test pass \
+             --fixture <csv-path>; for the role-creation snippet pass --print-grants."
+        )));
+    };
+    if args.password.is_some() {
+        return Err(LiveError::Usage(anyhow::anyhow!(
+            "--password is not supported by `melt audit` (Snowflake's REST API \
+             has no password flow). Use --token <PAT> or --private-key <pem> \
+             with --user; run `melt audit --print-grants` to provision MELT_AUDIT \
+             with the right grants."
+        )));
+    }
+
+    let auth = resolve_auth(args).map_err(LiveError::Usage)?;
+    let client = build_client(&account, auth).map_err(LiveError::Usage)?;
+    let plan = PullPlan {
+        account: account.clone(),
+        window_days,
+        warehouse: args.warehouse.clone(),
+        credit_price_usd: args.credit_price,
+        limit_rows: DEFAULT_LIMIT_ROWS,
     };
 
-    eprintln!(
-        "melt audit: live Snowflake pull is not yet wired in this \
-         build (account={account}, window={window_days}d). Run with \
-         `--fixture examples/audit/query-history-fixture.csv` to drive the \
-         local pipeline today, or `--print-grants` to print the role \
-         grants block. Live ACCOUNT_USAGE access requires the MELT_AUDIT \
-         role; check the grants printed by --print-grants if the operator's \
-         session lacks IMPORTED PRIVILEGES on \
-         SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY / WAREHOUSE_METERING_HISTORY."
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            LiveError::Runtime(anyhow::anyhow!("init tokio runtime for live audit pull: {e}"))
+        })?;
+    let pull = runtime
+        .block_on(run_pull(&plan, &client))
+        .map_err(LiveError::Runtime)?;
+
+    let cfg = AggregateConfig {
+        account: account.clone(),
+        credit_price_usd: args.credit_price,
+        top_n: args.top_n,
+        window_days,
+        explicit_window_bounds: pull.min_start_time.zip(pull.max_start_time),
+    };
+    let out = build_audit_output(&pull.rows, &cfg);
+    write_artifacts(args, &account, &out).map_err(LiveError::Runtime)?;
+
+    println!(
+        "✓ Pulled {} queries from Snowflake in {:.1}s",
+        pull.rows.len(),
+        pull.total_pull_duration.as_secs_f64(),
     );
-    ExitCode::from(2)
+    println!(
+        "✓ Window {} → {} ({}d)",
+        out.window.start.format("%Y-%m-%d"),
+        out.window.end.format("%Y-%m-%d"),
+        out.window.days,
+    );
+    print!("{}", render_stdout_table(&out, !args.no_color));
+    Ok(())
+}
+
+fn resolve_auth(args: &AuditArgs) -> anyhow::Result<AuditAuth> {
+    match (&args.token, &args.private_key) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!(
+                "pass exactly one of --token or --private-key (with --user); \
+                 received both"
+            )
+        }
+        (Some(t), None) => Ok(AuditAuth::Pat(t.clone())),
+        (None, Some(path)) => {
+            let pem_bytes = std::fs::read(path).map_err(|e| {
+                anyhow::anyhow!("read --private-key from {}: {e}", path.display())
+            })?;
+            let user = args
+                .user
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--user is required when --private-key is set"))?;
+            Ok(AuditAuth::KeyPair { pem_bytes, user })
+        }
+        (None, None) => Err(anyhow::anyhow!(
+            "no Snowflake credentials supplied — pass --token <PAT> or \
+             --private-key <pem> with --user. Run `melt audit --print-grants` \
+             to print the role-creation snippet from spec §2."
+        )),
+    }
 }
 
 /// Local pipeline: CSV → aggregate → render → write three artifacts.
-fn run_fixture(
-    args: &AuditArgs,
-    fixture_path: &std::path::Path,
-    window_days: u32,
-) -> anyhow::Result<ExitCode> {
+fn run_fixture(args: &AuditArgs, fixture_path: &Path, window_days: u32) -> anyhow::Result<()> {
     let rows = load_query_history_csv(fixture_path)?;
 
     let account = args
@@ -173,16 +270,7 @@ fn run_fixture(
     };
     let out = build_audit_output(&rows, &cfg);
 
-    let json = render_json(&out);
-    let talking = render_talkingpoints(&out);
-    let table = render_stdout_table(&out, !args.no_color);
-
-    std::fs::create_dir_all(&args.out_dir)?;
-    let stem = output_stem(&account, Utc::now());
-    let json_path = args.out_dir.join(format!("{stem}.json"));
-    let tp_path = args.out_dir.join(format!("{stem}.talkingpoints.md"));
-    std::fs::write(&json_path, &json)?;
-    std::fs::write(&tp_path, &talking)?;
+    write_artifacts(args, &account, &out)?;
 
     println!(
         "✓ Loaded fixture {} ({} queries)",
@@ -195,15 +283,37 @@ fn run_fixture(
         out.window.end.format("%Y-%m-%d"),
         out.window.days,
     );
-    print!("{table}");
-    println!("JSON written → {}", json_path.display());
-    println!("Talking points → {}", tp_path.display());
+    print!("{}", render_stdout_table(&out, !args.no_color));
     println!();
     println!(
         "Run `melt audit share` to (opt-in) upload anonymized results to \
          getmelt.com/audit/share."
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(())
+}
+
+/// Render + write the JSON + talking-points artifacts. Shared between
+/// the fixture path (CSV) and the live path (Snowflake REST). Prints
+/// the resulting file paths to stdout so operators can copy them
+/// straight into a share CLI / Slack message.
+fn write_artifacts(
+    args: &AuditArgs,
+    account: &str,
+    out: &crate::model::AuditOutput,
+) -> anyhow::Result<()> {
+    let json = render_json(out);
+    let talking = render_talkingpoints(out);
+
+    std::fs::create_dir_all(&args.out_dir)?;
+    let stem = output_stem(account, Utc::now());
+    let json_path = args.out_dir.join(format!("{stem}.json"));
+    let tp_path = args.out_dir.join(format!("{stem}.talkingpoints.md"));
+    std::fs::write(&json_path, &json)?;
+    std::fs::write(&tp_path, &talking)?;
+
+    println!("JSON written → {}", json_path.display());
+    println!("Talking points → {}", tp_path.display());
+    Ok(())
 }
 
 fn parse_window(s: &str) -> Result<u32, String> {

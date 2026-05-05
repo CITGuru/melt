@@ -126,17 +126,11 @@ async fn main() -> anyhow::Result<()> {
 
     // `audit` reads `SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` directly
     // with its own auth flags — no `melt.toml`, no proxy listener,
-    // no metrics init. Short-circuit before any of that.
+    // no metrics init. Short-circuit before any of that and forward
+    // the inner exit code verbatim so the caller can distinguish
+    // usage errors (2) from runtime failures (1) from success (0).
     if let Command::Audit(args) = cli.command {
-        let code = audit_cmd::run(args);
-        return if code == std::process::ExitCode::SUCCESS {
-            Ok(())
-        } else {
-            // Surface a non-zero exit at the process level. clap-style
-            // 2 = usage error; the inner `run` already wrote a clear
-            // remediation message to stderr.
-            std::process::exit(2);
-        };
+        std::process::exit(i32::from(audit_cmd::run_status(args)));
     }
 
     // `debug` subcommands build a read-only backend connection and

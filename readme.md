@@ -167,15 +167,36 @@ GRANT ROLE MELT_AUDIT TO USER <USER_NAME>;
 
 ### Live mode (Snowflake account)
 
+After running the snippet from `--print-grants` against your Snowflake
+account, point the binary at your account locator with either a PAT
+(`--token`) or an RSA private key (`--private-key` + `--user`):
+
 ```bash
+# PAT (programmatic access token)
 cargo run -p melt-audit -- \
   --account <locator> \
-  --user <service-user> \
-  --token <pat-or-oauth> \
-  --window 30d
+  --token   <pat> \
+  --window  30d \
+  --warehouse XSMALL
+
+# RSA key-pair (production-grade)
+cargo run -p melt-audit -- \
+  --account     <locator> \
+  --user        MELT_AUDIT_SVC \
+  --private-key /path/to/rsa_key.p8 \
+  --window      30d
 ```
 
-The HTTP path against `ACCOUNT_USAGE.QUERY_HISTORY` is wired in a follow-up commit on the `feat/melt_audit_binary` branch — until then the binary surfaces a remediation hint that names the missing `MELT_AUDIT` role grants. Use the fixture path or `--print-grants` today.
+Live mode runs under the `MELT_AUDIT` role and reads
+`SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` and
+`WAREHOUSE_METERING_HISTORY` only. On any auth or grant failure the
+binary exits non-zero with a remediation hint that names the role and
+the `IMPORTED PRIVILEGES` grant — re-run `--print-grants` and have a
+Snowflake admin apply the snippet, then retry.
+
+`--password` is intentionally rejected: Snowflake's REST API has no
+password flow, and the `melt audit share` upload (POWA-141) will gate
+on the same MELT_AUDIT credential.
 
 ## Documentation
 

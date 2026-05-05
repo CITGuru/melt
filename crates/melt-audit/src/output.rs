@@ -152,7 +152,15 @@ fn format_int(n: u64) -> String {
 }
 
 fn format_money(n: f64) -> String {
-    format_int(n.round() as u64)
+    // For headline figures (≥ $100) the cent component is noise — use a
+    // grouped integer. For small amounts (< $100, including the
+    // single-row fixture demos) keep two decimal places so a non-zero
+    // value never collapses to `$0`.
+    if n.abs() >= 100.0 {
+        format_int(n.round() as u64)
+    } else {
+        format!("{n:.2}")
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -231,4 +239,28 @@ fn sanitize_account(a: &str) -> String {
     a.chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
         .collect()
+}
+
+#[cfg(test)]
+mod format_money_tests {
+    use super::format_money;
+
+    #[test]
+    fn zero_renders_two_decimals() {
+        assert_eq!(format_money(0.0), "0.00");
+    }
+
+    #[test]
+    fn cent_amount_keeps_two_decimals() {
+        assert_eq!(format_money(0.01), "0.01");
+        assert_eq!(format_money(7.85), "7.85");
+        assert_eq!(format_money(99.99), "99.99");
+    }
+
+    #[test]
+    fn headline_amount_collapses_to_grouped_int() {
+        assert_eq!(format_money(100.0), "100");
+        assert_eq!(format_money(2_500.49), "2,500");
+        assert_eq!(format_money(1_234_567.89), "1,234,568");
+    }
 }

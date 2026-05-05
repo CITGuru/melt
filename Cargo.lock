@@ -2474,9 +2474,11 @@ dependencies = [
  "clap",
  "melt-core",
  "melt-router",
+ "melt-snowflake",
  "serde",
  "serde_json",
  "sqlparser",
+ "tokio",
 ]
 
 [[package]]
