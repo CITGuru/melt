@@ -2,14 +2,17 @@
 //!
 //! Replays a small, configurable fraction of hybrid queries against
 //! pure Snowflake (via `SnowflakeClient`) and compares the result
-//! shape (row count + a stable digest of the rendered rows) to what
-//! the hybrid path produced. Mismatches surface as a counter
-//! (`melt_hybrid_parity_mismatches_total`) and a `WARN` log carrying
-//! enough detail to reproduce manually.
+//! shape (row count + an optional stable digest of the rendered rows)
+//! to what the hybrid path produced. Mismatches surface as a labelled
+//! counter (`melt_hybrid_parity_mismatches_total{route=hybrid,reason=…}`)
+//! and a `WARN hybrid_parity_mismatch` log carrying enough detail to
+//! reproduce manually — query hash, plan summary (NO SQL body),
+//! expected/actual row counts, expected/actual digests, sampler
+//! config.
 //!
 //! ## Architecture
 //!
-//! - The proxy's hybrid execute path may opportunistically push a
+//! - The proxy's hybrid execute path opportunistically pushes a
 //!   [`ParitySample`] into the harness's bounded `mpsc::Sender`.
 //!   Sampling probability is `router.hybrid_parity_sample_rate`.
 //! - A single background task drains the channel, re-runs the
@@ -21,42 +24,78 @@
 //!   deployments naturally get fewer samples per query, which is
 //!   the right behaviour.
 //!
-//! ## What's implemented
+//! ## Compare modes
 //!
-//! - `ParityHarness` + bounded `mpsc::Sender` + drop counter.
-//! - `should_sample(rate)` helper (pseudorandom Bernoulli trial).
-//! - **Row-count comparison** as the cheap first gate.
-//! - **Per-row XOR-of-SHA256 digest** when the sample carries eager
-//!   batches, comparing the canonicalised hybrid Arrow rendering
-//!   against the canonicalised Snowflake JSON rendering. See
-//!   `digest_record_batches` and `digest_snowflake_rows` for the
-//!   canonicalisation rules (decimal trailing-zero strip, timestamp
-//!   UTC normalisation, NULL → `\u{0}` sentinel). Order-invariant by
-//!   construction (XOR fold).
+//! `[router].hybrid_parity_compare_mode` selects how aggressively the
+//! sampler compares:
 //!
-//! Snowflake's `/api/v2/statements` returns JSON (not Arrow), so the
-//! cell-by-cell match requires the canonicalisation step — the type
-//! systems do not align by default. Known drift surfaces handled by
-//! the canonicalisation: decimal trailing zeros, timestamp TZ
-//! normalisation, NULL ordering, semi-structured (VARIANT) access.
+//! - [`HybridParityCompareMode::RowCount`] (default) — the row count
+//!   is the only check. Cheapest path; the digest comparison is
+//!   skipped even when eager batches are available.
+//! - [`HybridParityCompareMode::Hash`] — row counts AND a per-row
+//!   XOR-of-SHA256 digest of the canonicalised result. Catches
+//!   NUMBER precision, TIMESTAMP_TZ, VARIANT, and NULL ordering
+//!   drift at the cost of buffering eager batches and running the
+//!   canonicalisation. Hash mode is the follow-up budget — keep on
+//!   `RowCount` until the bench harness shows the digest cost is
+//!   workable at the configured sample rate.
 
 use std::sync::Arc;
 
 use arrow::array::{Array, AsArray};
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
+use melt_core::HybridParityCompareMode;
 use melt_snowflake::SnowflakeClient;
 use metrics::counter;
 use rand::Rng;
 use tokio::sync::mpsc;
 
+/// Compact, log-safe summary of the hybrid plan that produced the
+/// sampled result. Stamped into every `WARN hybrid_parity_mismatch`
+/// log line so operators have routing context without the SQL body
+/// (which can carry PII / large literal lists). Mirrors the
+/// observability surface in `docs/internal/DUAL_EXECUTION.md` §10.
+#[derive(Clone, Debug, Default)]
+pub struct PlanSummary {
+    /// `attach` | `materialize` | `mixed` | `none`. Mirrors
+    /// `melt_hybrid_strategy_total{strategy=…}`.
+    pub strategy: String,
+    /// Display-form of `HybridReason` (`RemoteByConfig`, etc.).
+    pub reason: String,
+    /// Number of `RemoteSql` nodes that chose Materialize. Each
+    /// fragment is one Snowflake roundtrip at execute time.
+    pub fragments: usize,
+    /// Number of `RemoteSql` nodes that chose Attach.
+    pub attach_rewrites: usize,
+    /// Distinct table count across all remote nodes. We log a count
+    /// rather than the names so the WARN line stays bounded and
+    /// operators can join against `melt route <sql>` for the names.
+    pub remote_table_count: usize,
+    /// Estimated bytes the Materialize path will pull from Snowflake
+    /// across all fragments. From `HybridPlan::estimated_remote_bytes`.
+    pub estimated_remote_bytes: u64,
+    /// Strategy chain member that decided the top-level collapse for
+    /// this plan (`heuristic` / `cost` / `fallback`). Mirrors
+    /// `melt_hybrid_strategy_decisions_total{strategy=…}`.
+    pub chain_decided_by: String,
+}
+
 /// One sample queued for parity replay. Contains everything the
 /// background task needs — the original (untranslated) SQL, the
-/// result the hybrid path produced (row count for v1; full result
-/// fingerprint when the digest path is wired), and a stable query id
-/// so log lines correlate with `statement_complete` events.
+/// result the hybrid path produced (row count + optionally eager
+/// batches for the digest path), routing context for the WARN log,
+/// and the sampler config that produced it (so the log is
+/// self-describing and operators can correlate with `melt.toml`).
 pub struct ParitySample {
+    /// Stable per-query identifier — currently a UUID minted at sample
+    /// time. The WARN log emits this verbatim; operators reproduce
+    /// via `melt logs grep <query_id>`.
     pub query_id: String,
+    /// SHA-256-128 of the original SQL. Stable across runs / proxies,
+    /// safe to log (no PII), small enough for dashboards. Counterpart
+    /// to the WARN log's `query_hash` field.
+    pub query_hash: u128,
     /// Original Snowflake-dialect SQL. Replayed against Snowflake
     /// passthrough — NEVER the translated DuckDB-dialect form.
     pub original_sql: String,
@@ -65,13 +104,23 @@ pub struct ParitySample {
     /// `execute_passthrough`.
     pub token: String,
     /// Row count the hybrid path produced. Compared 1:1 with the
-    /// Snowflake replay's row count for v1's coarse parity check.
-    /// (When the digest path lands, this becomes one element of a
-    /// richer fingerprint.)
+    /// Snowflake replay's row count for the cheap first gate.
     pub hybrid_row_count: u64,
-    /// Optional eager batches for digest computation. Populated by
-    /// the proxy when `--strict-parity` is on; ignored in v1.
+    /// Optional eager batches for digest computation. Only populated
+    /// when `compare_mode == Hash`; ignored in `RowCount` mode so the
+    /// hot path avoids cloning.
     pub hybrid_eager_batches: Vec<RecordBatch>,
+    /// Plan-shape summary. Logged with every mismatch so operators
+    /// see strategy / reason / fragment count without the SQL body.
+    pub plan_summary: PlanSummary,
+    /// Compare mode selected at proxy boot. Carried per-sample so the
+    /// drain loop is fully self-describing — no global state read.
+    pub compare_mode: HybridParityCompareMode,
+    /// Sample rate active at the time the sample was queued. Logged
+    /// alongside mismatches so an operator reading the log knows
+    /// whether they were sampling 1% (and the mismatch is one of many
+    /// the sampler missed) or 100% (and this is exhaustive).
+    pub sample_rate: f32,
 }
 
 /// Bounded channel + sampler config + the background drain task
@@ -79,6 +128,7 @@ pub struct ParitySample {
 pub struct ParityHarness {
     sender: mpsc::Sender<ParitySample>,
     sample_rate: f32,
+    compare_mode: HybridParityCompareMode,
 }
 
 impl ParityHarness {
@@ -89,6 +139,7 @@ impl ParityHarness {
     pub fn spawn(
         snowflake: Arc<SnowflakeClient>,
         sample_rate: f32,
+        compare_mode: HybridParityCompareMode,
         channel_capacity: usize,
     ) -> Self {
         let (tx, rx) = mpsc::channel(channel_capacity.max(1));
@@ -99,6 +150,7 @@ impl ParityHarness {
         Self {
             sender: tx,
             sample_rate: sample_rate.clamp(0.0, 1.0),
+            compare_mode,
         }
     }
 
@@ -132,6 +184,10 @@ impl ParityHarness {
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate
     }
+
+    pub fn compare_mode(&self) -> HybridParityCompareMode {
+        self.compare_mode
+    }
 }
 
 /// `true` with probability `rate`. Uses thread-local RNG; cheap.
@@ -145,36 +201,79 @@ fn should_sample(rate: f32) -> bool {
     rand::thread_rng().gen::<f32>() < rate
 }
 
-/// Background drain. For each sample, replays against Snowflake and
-/// compares. v1: row-count comparison only; digest is a follow-up.
+/// Background drain. Runs until the channel closes (proxy shutdown).
 async fn drain(mut rx: mpsc::Receiver<ParitySample>, snowflake: Arc<SnowflakeClient>) {
     while let Some(sample) = rx.recv().await {
         let outcome = check_one(&sample, snowflake.as_ref()).await;
         match outcome {
             ParityOutcome::Match => {
+                counter!(
+                    melt_metrics::HYBRID_PARITY_SAMPLES,
+                    melt_metrics::LABEL_OUTCOME => melt_metrics::OUTCOME_OK,
+                )
+                .increment(1);
                 tracing::debug!(
                     query_id = %sample.query_id,
+                    query_hash = %format_hash(sample.query_hash),
                     row_count = sample.hybrid_row_count,
+                    compare_mode = sample.compare_mode.as_str(),
                     "parity match",
                 );
             }
             ParityOutcome::Mismatch {
+                reason,
                 snowflake_row_count,
+                hybrid_digest,
+                snowflake_digest,
             } => {
-                counter!(melt_metrics::HYBRID_PARITY_MISMATCHES).increment(1);
+                counter!(
+                    melt_metrics::HYBRID_PARITY_MISMATCHES,
+                    melt_metrics::LABEL_ROUTE => "hybrid",
+                    melt_metrics::LABEL_REASON => reason.as_str(),
+                )
+                .increment(1);
+                counter!(
+                    melt_metrics::HYBRID_PARITY_SAMPLES,
+                    melt_metrics::LABEL_OUTCOME => "mismatch",
+                )
+                .increment(1);
+                let summary = &sample.plan_summary;
+                // No SQL body here by design (POWA-162 AC2): the WARN
+                // line is a routing-shape fingerprint, the operator
+                // grabs the SQL from `query_id` ↔ `statement_complete`
+                // correlation when reproducing.
                 tracing::warn!(
+                    target: "hybrid_parity_mismatch",
                     query_id = %sample.query_id,
-                    hybrid_row_count = sample.hybrid_row_count,
-                    snowflake_row_count,
-                    sql = %truncate(&sample.original_sql, 400),
-                    "parity mismatch — hybrid and Snowflake disagree on row count"
+                    query_hash = %format_hash(sample.query_hash),
+                    reason = reason.as_str(),
+                    expected_row_count = sample.hybrid_row_count,
+                    actual_row_count = snowflake_row_count,
+                    expected_checksum = %format_hash_opt(hybrid_digest),
+                    actual_checksum = %format_hash_opt(snowflake_digest),
+                    plan_strategy = %summary.strategy,
+                    plan_reason = %summary.reason,
+                    plan_fragments = summary.fragments,
+                    plan_attach_rewrites = summary.attach_rewrites,
+                    plan_remote_table_count = summary.remote_table_count,
+                    plan_estimated_remote_bytes = summary.estimated_remote_bytes,
+                    plan_chain_decided_by = %summary.chain_decided_by,
+                    sampler_rate = sample.sample_rate,
+                    sampler_compare_mode = sample.compare_mode.as_str(),
+                    "hybrid_parity_mismatch",
                 );
             }
             ParityOutcome::ReplayFailed { error } => {
+                counter!(
+                    melt_metrics::HYBRID_PARITY_SAMPLES,
+                    melt_metrics::LABEL_OUTCOME => "replay_failed",
+                )
+                .increment(1);
                 // Snowflake-side failure isn't a parity mismatch on
                 // its own — could be transient. Log + drop.
                 tracing::debug!(
                     query_id = %sample.query_id,
+                    query_hash = %format_hash(sample.query_hash),
                     error = %error,
                     "parity replay failed — sample dropped"
                 );
@@ -183,16 +282,36 @@ async fn drain(mut rx: mpsc::Receiver<ParitySample>, snowflake: Arc<SnowflakeCli
     }
 }
 
+/// Mismatch reason — labels the `melt_hybrid_parity_mismatches_total`
+/// counter and the `reason` field on the WARN log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MismatchReason {
+    /// Row counts disagreed; this is the cheap first gate and always
+    /// runs regardless of `compare_mode`.
+    RowCount,
+    /// Row counts matched but the per-row XOR-of-SHA256 digest
+    /// disagreed. Only fires when `compare_mode == Hash`.
+    Hash,
+}
+
+impl MismatchReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RowCount => "row_count",
+            Self::Hash => "hash",
+        }
+    }
+}
+
 enum ParityOutcome {
     Match,
-    // Variants below are wired by the production drain loop; v1's
-    // stub returns only `Match`. `dead_code` here is intentional —
-    // the digest-comparison follow-up activates them.
-    #[allow(dead_code)]
     Mismatch {
+        reason: MismatchReason,
         snowflake_row_count: u64,
+        /// Set only when `reason == Hash`; `None` otherwise.
+        hybrid_digest: Option<u128>,
+        snowflake_digest: Option<u128>,
     },
-    #[allow(dead_code)]
     ReplayFailed {
         error: String,
     },
@@ -229,39 +348,52 @@ async fn check_one(sample: &ParitySample, snowflake: &SnowflakeClient) -> Parity
 
     // Snowflake returns { "data": [[...row...], ...] } on the v2
     // statements endpoint. Row count is `data.len()`.
-    let sf_row_count = json
+    let sf_rows: &[serde_json::Value] = json
         .get("data")
         .and_then(|d| d.as_array())
-        .map(|a| a.len() as u64)
-        .unwrap_or(0);
+        .map(|a| a.as_slice())
+        .unwrap_or(&[]);
+    let sf_row_count = sf_rows.len() as u64;
 
     if sf_row_count != sample.hybrid_row_count {
         return ParityOutcome::Mismatch {
+            reason: MismatchReason::RowCount,
             snowflake_row_count: sf_row_count,
+            hybrid_digest: None,
+            snowflake_digest: None,
         };
     }
 
-    // Row counts match. If the sample carries eager batches, do a
-    // deeper digest comparison. The hybrid digest XOR-folds per-row
-    // SHA256s (canonicalised by sorting + normalising floats); for
-    // the v1 comparison we compute the same over the Snowflake JSON
-    // rowset and compare. Any drift in NUMBER precision,
+    // Row counts match. In `Hash` compare mode, do the deeper digest
+    // comparison when we have eager batches. The hybrid digest
+    // XOR-folds per-row SHA256s (canonicalised by sorting + normalising
+    // floats); for the comparison we compute the same over the
+    // Snowflake JSON rowset and compare. Any drift in NUMBER precision,
     // TIMESTAMP_TZ, VARIANT, or NULL ordering surfaces here.
-    if !sample.hybrid_eager_batches.is_empty() {
+    if matches!(sample.compare_mode, HybridParityCompareMode::Hash)
+        && !sample.hybrid_eager_batches.is_empty()
+    {
         let hybrid_digest = digest_record_batches(&sample.hybrid_eager_batches);
-        let snowflake_digest = json
-            .get("data")
-            .and_then(|d| d.as_array())
-            .map(|v| digest_snowflake_rows(v.as_slice()))
-            .unwrap_or(0u128);
+        let snowflake_digest = digest_snowflake_rows(sf_rows);
         if hybrid_digest != snowflake_digest {
             return ParityOutcome::Mismatch {
+                reason: MismatchReason::Hash,
                 snowflake_row_count: sf_row_count,
+                hybrid_digest: Some(hybrid_digest),
+                snowflake_digest: Some(snowflake_digest),
             };
         }
     }
 
     ParityOutcome::Match
+}
+
+/// SHA-256-128 of an arbitrary byte string. Re-exported via the
+/// `query_hash` constructor below for [`ParitySample`] callers — the
+/// proxy hashes `original_sql` once per sample so the harness never
+/// stringifies SQL into log lines itself.
+pub fn hash_query(sql: &str) -> u128 {
+    sha256_128(sql.as_bytes())
 }
 
 /// Order-invariant XOR-of-per-row-SHA256 digest for an Arrow batch
@@ -427,11 +559,14 @@ fn sha256_128(bytes: &[u8]) -> u128 {
     lo ^ hi
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max])
+fn format_hash(h: u128) -> String {
+    format!("{h:032x}")
+}
+
+fn format_hash_opt(h: Option<u128>) -> String {
+    match h {
+        Some(v) => format_hash(v),
+        None => "-".to_string(),
     }
 }
 
@@ -467,12 +602,6 @@ mod tests {
     }
 
     #[test]
-    fn truncate_long_strings() {
-        assert_eq!(truncate("abcdef", 3), "abc…");
-        assert_eq!(truncate("ab", 3), "ab");
-    }
-
-    #[test]
     fn normalize_float_drops_trailing_zeros() {
         assert_eq!(normalize_float("1.00"), "1");
         assert_eq!(normalize_float("1.50"), "1.5");
@@ -489,6 +618,15 @@ mod tests {
         assert_eq!(a, b);
         let c = sha256_128(b"world");
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn hash_query_is_stable_and_distinct() {
+        let a = hash_query("SELECT 1");
+        let b = hash_query("SELECT 1");
+        let c = hash_query("SELECT 2");
+        assert_eq!(a, b, "same SQL should produce same hash");
+        assert_ne!(a, c, "different SQL should produce different hash");
     }
 
     #[test]
@@ -530,5 +668,26 @@ mod tests {
         assert!(!looks_like_float("1"));
         assert!(!looks_like_float("abc"));
         assert!(!looks_like_float(".5")); // no leading digit
+    }
+
+    #[test]
+    fn mismatch_reason_labels_match_metric_vocab() {
+        assert_eq!(MismatchReason::RowCount.as_str(), "row_count");
+        assert_eq!(MismatchReason::Hash.as_str(), "hash");
+    }
+
+    #[test]
+    fn format_hash_is_zero_padded_lowercase_hex() {
+        assert_eq!(format_hash(0), "0".repeat(32));
+        assert_eq!(
+            format_hash(0xdeadbeef_u128),
+            "000000000000000000000000deadbeef"
+        );
+    }
+
+    #[test]
+    fn format_hash_opt_renders_dash_for_none() {
+        assert_eq!(format_hash_opt(None), "-");
+        assert_eq!(format_hash_opt(Some(1)), format_hash(1));
     }
 }

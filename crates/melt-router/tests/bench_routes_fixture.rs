@@ -174,8 +174,7 @@ fn bench_workload_routes_match_fixture() {
     let mut diffs: Vec<String> = Vec::new();
     for (i, q) in workload.queries.iter().enumerate() {
         let sql = q.sql.trim();
-        let outcome =
-            lazy_classify_with_matcher(sql, &session, &sf_cfg, matcher.as_ref(), &cfg);
+        let outcome = lazy_classify_with_matcher(sql, &session, &sf_cfg, matcher.as_ref(), &cfg);
         let actual = outcome_to_record(&q.name, sql, &outcome);
         let expected = &fixture_queries[i];
         if &actual != expected {

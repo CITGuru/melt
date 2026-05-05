@@ -66,6 +66,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_VERSION = 1
 SECONDS_PER_HOUR = 3600.0
 
+# Default Melt admin port — `melt-metrics::serve_admin` exposes
+# `/metrics` (Prometheus text), `/healthz`, `/readyz`. Override via
+# MELT_ADMIN_HOST / MELT_ADMIN_PORT.
+DEFAULT_ADMIN_HOST = "127.0.0.1"
+DEFAULT_ADMIN_PORT = 9090
+
 
 # ─── Records ────────────────────────────────────────────────────────────────
 
@@ -449,6 +455,161 @@ def _chunk(plan: list[WorkloadQuery], n: int) -> list[list[WorkloadQuery]]:
     return out
 
 
+# ─── Parity sampler scrape (POWA-162) ──────────────────────────────────────
+#
+# When `--parity-sampler` is on, the harness:
+#
+#   1. Pre-flights the admin /metrics endpoint and captures the
+#      baseline values of the parity counters
+#      (`melt_hybrid_parity_mismatches_total`,
+#       `melt_hybrid_parity_samples_total{outcome=…}`,
+#       `melt_hybrid_parity_sample_drops_total`).
+#   2. Runs the bench loop unchanged (the flag does NOT enable
+#      sampling — that's a config concern; operator sets
+#      `[router].hybrid_parity_sample_rate = 1.0` in melt.toml).
+#   3. After the run, scrapes /metrics again and computes deltas.
+#   4. Asserts: `mismatches == 0` AND
+#      `samples_processed >= --parity-min-samples` (default 100).
+#   5. Embeds the deltas + verdict into the JSON output and prints
+#      a one-line summary.
+#
+# This is the v0.1 launch-checklist §A2 verification surface — it's
+# how we prove the parity sampler ran ≥100 queries with 0 mismatches
+# against current main without needing to scrape the proxy logs.
+
+
+@dataclass
+class ParityCounters:
+    """Snapshot of `melt_hybrid_parity_*` counters at one point in
+    time. Computed as floats because Prometheus text values are
+    floats; in practice they're always integral for counters."""
+
+    mismatches: dict[str, float]            # by reason label
+    samples: dict[str, float]               # by outcome label
+    sample_drops: float
+
+    @classmethod
+    def zero(cls) -> "ParityCounters":
+        return cls(mismatches={}, samples={}, sample_drops=0.0)
+
+    def total_mismatches(self) -> float:
+        return sum(self.mismatches.values())
+
+    def total_samples(self) -> float:
+        return sum(self.samples.values())
+
+    def diff(self, before: "ParityCounters") -> "ParityCounters":
+        def sub(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
+            keys = set(a) | set(b)
+            return {k: a.get(k, 0.0) - b.get(k, 0.0) for k in keys}
+        return ParityCounters(
+            mismatches=sub(self.mismatches, before.mismatches),
+            samples=sub(self.samples, before.samples),
+            sample_drops=self.sample_drops - before.sample_drops,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mismatches": self.mismatches,
+            "samples": self.samples,
+            "sample_drops": self.sample_drops,
+            "total_mismatches": self.total_mismatches(),
+            "total_samples": self.total_samples(),
+        }
+
+
+def _admin_url(path: str) -> str:
+    host = os.environ.get("MELT_ADMIN_HOST", DEFAULT_ADMIN_HOST)
+    port = int(os.environ.get("MELT_ADMIN_PORT", DEFAULT_ADMIN_PORT))
+    return f"http://{host}:{port}{path}"
+
+
+def _fetch_metrics_text() -> str:
+    """Scrape the admin /metrics endpoint. Returns Prometheus text
+    format. Raises on connection or HTTP errors so the bench fails
+    fast rather than silently scoring zero samples."""
+    import urllib.request
+    url = _admin_url("/metrics")
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        if resp.status != 200:
+            raise RuntimeError(f"GET {url} -> {resp.status}")
+        return resp.read().decode("utf-8")
+
+
+def scrape_parity_counters() -> ParityCounters:
+    """Parse `melt_hybrid_parity_*` counters from the metrics scrape.
+
+    Format is Prometheus text:
+        melt_hybrid_parity_mismatches_total{route="hybrid",reason="row_count"} 3
+        melt_hybrid_parity_samples_total{outcome="ok"} 17
+        melt_hybrid_parity_sample_drops_total 0
+
+    Unlabeled counters fall through with key `""`."""
+    body = _fetch_metrics_text()
+    counters = ParityCounters.zero()
+    for line in body.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        # Parse `name{labels} value` or `name value`.
+        if "{" in line:
+            name, _, rest = line.partition("{")
+            labels_str, _, value_str = rest.partition("} ")
+        else:
+            parts = line.rsplit(" ", 1)
+            if len(parts) != 2:
+                continue
+            name, value_str = parts
+            labels_str = ""
+        try:
+            value = float(value_str.strip())
+        except ValueError:
+            continue
+        labels = _parse_prom_labels(labels_str)
+        if name == "melt_hybrid_parity_mismatches_total":
+            counters.mismatches[labels.get("reason", "")] = value
+        elif name == "melt_hybrid_parity_samples_total":
+            counters.samples[labels.get("outcome", "")] = value
+        elif name == "melt_hybrid_parity_sample_drops_total":
+            counters.sample_drops = value
+    return counters
+
+
+def _parse_prom_labels(s: str) -> dict[str, str]:
+    """Tolerant Prometheus-label parser. Good enough for our counters
+    (no embedded commas/quotes in our label values)."""
+    out: dict[str, str] = {}
+    for piece in s.split(","):
+        if "=" not in piece:
+            continue
+        k, _, v = piece.partition("=")
+        out[k.strip()] = v.strip().strip('"')
+    return out
+
+
+def assert_parity_clean(
+    delta: ParityCounters, min_samples: int
+) -> tuple[bool, list[str]]:
+    """Returns (passed, problems). Problems is a list of human-
+    readable strings explaining why the assertion failed (empty when
+    passed). Mismatches > 0 and samples < min_samples are both
+    failures; sample_drops alone is a warning, not a failure
+    (drop = sampler caught up later, not drift)."""
+    problems: list[str] = []
+    if delta.total_mismatches() > 0:
+        for reason, count in delta.mismatches.items():
+            if count > 0:
+                problems.append(
+                    f"  mismatches[reason={reason or '-'}]={int(count)}"
+                )
+    if delta.total_samples() < min_samples:
+        problems.append(
+            f"  samples_processed={int(delta.total_samples())} "
+            f"< min_samples={min_samples} — proxy not reached or "
+            f"`router.hybrid_parity_sample_rate` is too low"
+        )
+    return (not problems), problems
+
+
 # ─── Summary + output ──────────────────────────────────────────────────────
 
 
@@ -550,6 +711,13 @@ def main() -> int:
     p.add_argument("--concurrency", type=int, default=None)
     p.add_argument("--credit-rate", type=float, default=None,
                    help="$/credit override (else workload.toml or BENCH_CREDIT_RATE)")
+    p.add_argument("--parity-sampler", action="store_true",
+                   help="scrape melt-proxy parity counters before/after the run; "
+                        "assert 0 mismatches and >= --parity-min-samples processed. "
+                        "Requires `[router].hybrid_parity_sample_rate = 1.0` in melt.toml.")
+    p.add_argument("--parity-min-samples", type=int, default=100,
+                   help="minimum sampled-and-checked queries the bench expects "
+                        "(POWA-162 AC5: >= 100). Default 100.")
     args = p.parse_args()
 
     rate_override = args.credit_rate
@@ -563,6 +731,24 @@ def main() -> int:
 
     started = datetime.now(timezone.utc).isoformat()
     routes = discover_routes(workload.queries)
+
+    parity_before: Optional[ParityCounters] = None
+    if args.parity_sampler:
+        if args.synthetic:
+            print(
+                "warning: --parity-sampler in --synthetic mode skips the metrics "
+                "scrape (no proxy is running). The flag will be recorded in the "
+                "output but the assertion is a no-op.",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                parity_before = scrape_parity_counters()
+            except Exception as e:  # noqa: BLE001 — surface the URL + error
+                sys.exit(
+                    f"--parity-sampler: failed to scrape {_admin_url('/metrics')}: {e}\n"
+                    f"Is melt-proxy running and is `[metrics].listen` configured?"
+                )
 
     melt_records: list[QueryRecord] = []
     sf_records: list[QueryRecord] = []
@@ -599,6 +785,40 @@ def main() -> int:
     melt_summary = summarize(melt_records, workload.cost)
     sf_summary = summarize(sf_records, workload.cost)
 
+    parity_block: Optional[dict[str, Any]] = None
+    parity_problems: list[str] = []
+    parity_passed = True
+    if args.parity_sampler:
+        if args.synthetic or parity_before is None:
+            parity_block = {
+                "skipped": True,
+                "reason": "synthetic mode" if args.synthetic else "pre-scrape failed",
+                "min_samples": args.parity_min_samples,
+            }
+        else:
+            try:
+                parity_after = scrape_parity_counters()
+            except Exception as e:  # noqa: BLE001
+                parity_block = {
+                    "skipped": True,
+                    "reason": f"post-scrape failed: {e}",
+                    "min_samples": args.parity_min_samples,
+                }
+            else:
+                delta_counters = parity_after.diff(parity_before)
+                parity_passed, parity_problems = assert_parity_clean(
+                    delta_counters, args.parity_min_samples
+                )
+                parity_block = {
+                    "skipped": False,
+                    "min_samples": args.parity_min_samples,
+                    "before": parity_before.to_dict(),
+                    "after": parity_after.to_dict(),
+                    "delta": delta_counters.to_dict(),
+                    "passed": parity_passed,
+                    "problems": parity_problems,
+                }
+
     output = {
         "harness_version": HARNESS_VERSION,
         "mode": "synthetic" if args.synthetic else "real",
@@ -624,6 +844,7 @@ def main() -> int:
             "snowflake": sf_summary,
             "delta": delta(melt_summary, sf_summary)
                 if melt_records and sf_records else None,
+            "parity_sampler": parity_block,
         },
     }
 
@@ -633,6 +854,21 @@ def main() -> int:
         json.dump(output, f, indent=2, sort_keys=False)
 
     _print_summary(out_path, output)
+    if args.parity_sampler and parity_block and not parity_block.get("skipped"):
+        if parity_passed:
+            print(
+                f"   parity_sampler  PASS  "
+                f"samples={int(parity_block['delta']['total_samples'])}  "
+                f"mismatches={int(parity_block['delta']['total_mismatches'])}  "
+                f"drops={int(parity_block['delta']['sample_drops'])}"
+            )
+        else:
+            print("   parity_sampler  FAIL")
+            for p in parity_problems:
+                print(p)
+            return 1
+    elif args.parity_sampler and parity_block and parity_block.get("skipped"):
+        print(f"   parity_sampler  SKIPPED  ({parity_block.get('reason', '?')})")
     return 0
 
 
