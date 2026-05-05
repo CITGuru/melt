@@ -339,10 +339,16 @@ def _run_one(cur, path: str, q: WorkloadQuery, routes: dict[str, str],
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     if not record:
         return None
-    # Best-effort: the connector exposes the warehouse on the connection.
-    try:
-        warehouse = cur.connection.warehouse
-    except Exception:
+    # Best-effort: the connector exposes the warehouse on the connection. Redact
+    # the live name by default so checked-in fixtures don't leak customer/account-
+    # specific identifiers — the cost math only needs `warehouse_size`. Set
+    # BENCH_RECORD_WAREHOUSE_NAME=1 to capture the live name in local-only runs.
+    if os.environ.get("BENCH_RECORD_WAREHOUSE_NAME") == "1":
+        try:
+            warehouse = cur.connection.warehouse
+        except Exception:
+            warehouse = None
+    else:
         warehouse = None
     # Path "snowflake" is always passthrough; path "melt" is whatever the
     # router decided (lake / snowflake / dual). For Melt path we trust the
@@ -481,13 +487,21 @@ def _pct(xs: list[float], p: float) -> float:
 
 
 def delta(melt_summary: dict[str, Any], sf_summary: dict[str, Any]) -> dict[str, Any]:
-    sf_qpd = sf_summary.get("queries_per_dollar") or 0
-    melt_qpd = melt_summary.get("queries_per_dollar") or 0
+    sf_qpd = sf_summary.get("queries_per_dollar")
+    melt_qpd = melt_summary.get("queries_per_dollar")
     sf_usd_per_1k = (sf_summary.get("usd", 0) / sf_summary.get("queries", 1)) * 1000
     melt_usd_per_1k = (melt_summary.get("usd", 0) / melt_summary.get("queries", 1)) * 1000
+    # `None` queries_per_dollar means USD was 0 (e.g. all queries routed to lake) —
+    # the factor is unbounded. Encode that as a string sentinel rather than zero so
+    # the headline doesn't read "melt is 0× snowflake".
+    if sf_qpd in (None, 0):
+        factor: Any = None
+    elif melt_qpd is None:
+        factor = "infinite"
+    else:
+        factor = round(melt_qpd / sf_qpd, 2)
     return {
-        "queries_per_dollar_factor":
-            round(melt_qpd / sf_qpd, 2) if sf_qpd else None,
+        "queries_per_dollar_factor": factor,
         "usd_per_1k_queries": {
             "snowflake": round(sf_usd_per_1k, 4),
             "melt": round(melt_usd_per_1k, 4),
@@ -497,6 +511,15 @@ def delta(melt_summary: dict[str, Any], sf_summary: dict[str, Any]) -> dict[str,
                 if sf_usd_per_1k else None,
         },
     }
+
+
+def _safe_workload_path(p: str) -> str:
+    """Render the workload path repo-relative when possible, otherwise basename
+    only. Avoids leaking the operator's home directory into checked-in fixtures."""
+    try:
+        return str(Path(p).resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return Path(p).name
 
 
 def git_sha() -> Optional[str]:
@@ -583,7 +606,7 @@ def main() -> int:
         "ended_at": ended,
         "git_sha": git_sha(),
         "config": {
-            "workload": str(args.workload),
+            "workload": _safe_workload_path(args.workload),
             "runs": workload.runs,
             "concurrency": workload.concurrency,
             "warmup": workload.warmup,
@@ -622,10 +645,12 @@ def _print_summary(out_path: str, output: dict[str, Any]) -> None:
     for label in ("snowflake", "melt"):
         sm = s.get(label) or {}
         if sm.get("queries"):
+            qpd = sm.get("queries_per_dollar")
+            qpd_str = "∞" if qpd is None else str(qpd)
             print(f"   {label:<10} queries={sm['queries']:<4} "
                   f"p50={sm['latency_ms']['p50']:<7}ms "
                   f"p95={sm['latency_ms']['p95']:<7}ms "
-                  f"usd={sm['usd']:<8} q/$={sm.get('queries_per_dollar')}  "
+                  f"usd={sm['usd']:<8} q/$={qpd_str}  "
                   f"routes={sm.get('route_mix')}")
     d = s.get("delta")
     if d:
@@ -633,7 +658,10 @@ def _print_summary(out_path: str, output: dict[str, Any]) -> None:
         print(f"   ── delta")
         print(f"      $/1k queries   snowflake={per1k['snowflake']}  melt={per1k['melt']}")
         print(f"      savings/1k     ${per1k['savings']}  ({per1k['savings_pct']}% cheaper)")
-        print(f"      q/$ factor     melt is {d['queries_per_dollar_factor']}× snowflake")
+        factor = d["queries_per_dollar_factor"]
+        factor_str = "∞ (all queries routed to lake — zero Snowflake cost)" \
+            if factor == "infinite" else f"{factor}× snowflake"
+        print(f"      q/$ factor     melt is {factor_str}")
 
 
 if __name__ == "__main__":

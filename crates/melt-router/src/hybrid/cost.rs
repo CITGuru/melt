@@ -59,6 +59,9 @@ impl Cost {
         self.network_seconds + self.local_seconds
     }
 
+    // Inherent `add` method — kept distinct from `std::ops::Add` to
+    // preserve the existing fluent call site (`a.add(b)`) without
+    // requiring callers to glob-import the trait.
     #[allow(clippy::should_implement_trait)]
     pub fn add(self, other: Cost) -> Cost {
         Cost {
