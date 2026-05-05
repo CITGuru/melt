@@ -14,8 +14,13 @@ Both demos print the result of each query and the route the proxy logged for it.
 ```
 melt/
 ├── examples/
-│   ├── python/    # snowflake-connector-python
-│   └── rust/      # snowflake-connector-rs (estie-inc, v0.9)
+│   ├── python/                # snowflake-connector-python
+│   │   ├── melt_demo.py       # the four-query routing walkthrough
+│   │   ├── router_demo.py     # operator query-variant harness (--variants <dir>)
+│   │   ├── hybrid_demo.py     # dual-execution variant harness (--variants <dir>)
+│   │   ├── variants/          # router_demo.py SQL templates (operator-local; gitignored)
+│   │   └── variants_hybrid/   # hybrid_demo.py SQL templates + README
+│   └── rust/                  # snowflake-connector-rs (estie-inc, v0.9)
 ```
 
 ## Prerequisites
@@ -25,7 +30,7 @@ melt/
    docker compose up --build
    # OR cargo run --bin melt -- --config melt.toml all
    ```
-2. **A real Snowflake account.** The drivers begin every connection with `POST /session/v1/login-request`, which Melt forwards to `<account>.snowflakecomputing.com`. With the placeholder account in `melt.toml`, login returns `502 Bad Gateway` and every subsequent statement returns `401 Unauthorized`. Three options:
+2. **A real Snowflake account.** The drivers begin every connection with `POST /session/v1/login-request`, which Melt forwards to `<account>.snowflakecomputing.com`. With the placeholder account in `melt.toml`, login returns `502 Bad Gateway` and every subsequent statement returns `401 Unauthorized`. Two options:
    - Sign up for the [Snowflake 30-day trial](https://signup.snowflake.com/) and update `account` in `melt.docker.toml` (or `melt.toml`).
    - Run `melt route "<sql>"` for offline routing tests — see the [CLI README](../crates/melt-cli/readme.md).
 3. **Credentials in env vars.** Both demos read these:

@@ -52,6 +52,7 @@ Driver-facing TCP/TLS listener.
 | `request_timeout` | duration | `"30s"` | Max time any single HTTP request can take before tower's timeout layer drops it |
 | `max_concurrent_per_session` | u32 | `16` | Cap on in-flight `/api/v2/statements` per Snowflake session |
 | `max_concurrent_global` | u32 | `256` | Cap on in-flight statements across all sessions |
+| `max_body_bytes` | byte size | `"16MiB"` | Per-request body cap on proxy routes (login / statement / partition). Bodies above the cap return 413 before the handler runs. Raise for bulk `COPY INTO` via the REST API |
 | `result_store_max_bytes` | byte size | `"2GB"` | Memory ceiling for paginated result batches |
 | `result_store_max_entries` | u32 | `10000` | Cap on number of result-store entries regardless of size |
 | `result_store_idle_ttl` | duration | `"5m"` | Evict result-store entries that haven't been polled for this long |
