@@ -217,11 +217,7 @@ fn top_patterns(groups: &BTreeMap<(String, String), PatternAccum>) -> Vec<Patter
         .map(|((fqn, pattern), acc)| PatternRow {
             rank: 0,
             freq: acc.freq,
-            avg_ms: if acc.freq == 0 {
-                0
-            } else {
-                acc.total_ms / acc.freq
-            },
+            avg_ms: acc.total_ms.checked_div(acc.freq).unwrap_or(0),
             table_fqn: fqn.clone(),
             pattern_redacted: pattern.clone(),
             est_dollars_in_window: round2(acc.total_dollars),
