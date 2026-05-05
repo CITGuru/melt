@@ -2690,9 +2690,11 @@ dependencies = [
  "metrics",
  "parking_lot",
  "serde",
+ "serde_json",
  "sqlparser",
  "thiserror 1.0.69",
  "tokio",
+ "toml",
  "tracing",
 ]
 
