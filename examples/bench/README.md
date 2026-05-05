@@ -53,7 +53,13 @@ export SNOWFLAKE_SCHEMA=PUBLIC
 export SNOWFLAKE_WAREHOUSE=COMPUTE_WH      # if not set, the driver uses the user's default
 export BENCH_CREDIT_RATE=3.00              # $/credit (Standard list)
 
-# 4. Run.
+# 4. Seed the bench dataset into Snowflake (idempotent — safe to rerun).
+#    Creates ANALYTICS.PUBLIC.USERS + ANALYTICS.PUBLIC.EVENTS at 50k rows
+#    each, shaped to satisfy the four templates in workload.toml.
+python3 ../../scripts/bench-seed/seed_bench.py
+
+# 5. Bring those tables into Melt's lake (one-shot sync), then run.
+docker compose run --rm melt sync run --once
 make bench
 ```
 
@@ -63,13 +69,13 @@ A successful run prints, e.g.:
 
 ```
 ── Bench complete ── (real mode)
-   results: results-20260505T082000Z.json
-   git:     622fb38…
-   snowflake  queries=100  p50=141.75ms p95=236.19ms usd=0.10181 q/$=982.22  routes={'snowflake': 100}
-   melt       queries=100  p50=156.23ms p95=245.40ms usd=0.0     q/$=∞  routes={'lake': 100}
+   results: results-20260505T083500Z.json
+   git:     8797ed6…
+   snowflake  queries=100  p50=118.32ms p95=210.75ms usd=0.088668 q/$=1127.8  routes={'snowflake': 100}
+   melt       queries=100  p50=139.56ms p95=264.99ms usd=0.0      q/$=∞       routes={'lake': 100}
    ── delta
-      $/1k queries   snowflake=1.0181  melt=0.0
-      savings/1k     $1.0181  (100.0% cheaper)
+      $/1k queries   snowflake=0.8867  melt=0.0
+      savings/1k     $0.8867  (100.0% cheaper)
       q/$ factor     melt is ∞ (all queries routed to lake — zero Snowflake cost)
 ```
 
