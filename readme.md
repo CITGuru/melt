@@ -1,6 +1,10 @@
 # Melt
 
-Melt is an open-source, self-hosted Rust proxy that sits in front of Snowflake and transparently routes SQL to a cheaper DuckDB-backed lakehouse (DuckLake or Iceberg) whenever it can. **Change one connection string, melt your Snowflake bill.**
+Melt is a self-hosted Rust proxy that sits in front of Snowflake and transparently routes SQL to a cheaper DuckDB-backed lakehouse (DuckLake or Iceberg) whenever it can. **Change one connection string, melt your Snowflake bill.**
+
+On the agent-shaped workload mix in [`examples/bench/workload.toml`](examples/bench/workload.toml) — 60% small-filter / 25% selective-join / 12% daily-aggregate / 3% top-N, 100×2 queries against a 50,000-row Snowflake trial fixture, $3/credit Standard-edition Large warehouse (commit [`8797ed6`](https://github.com/CITGuru/melt/commit/8797ed6)) — Snowflake passthrough measured **982 queries per dollar** vs **∞ q/$ via Melt-to-lake** (every query routed to the lake; zero Snowflake credits burned). Auditable raw run: [`examples/bench/fixtures/results-real.json`](examples/bench/fixtures/results-real.json).
+
+Reproducible from a clean checkout via the [bench harness](examples/bench/): `make bench` against your own Snowflake trial returns the same shape, ±15%, on the same workload. Caveats — cost is modeled at a flat $/credit on a single shared LARGE warehouse; the savings story is the cost multiplier (every Snowflake query bills warehouse credits, every lake query bills $0), not raw latency; lake routing depends on bench tables being synced. Re-run on every lake-side perf change, every routing change, and at minimum monthly. The [bench README](examples/bench/README.md) lists the full assumption set.
 
 Any client that speaks Snowflake's REST wire protocol — JDBC, the Python connector, Go, Looker, Sigma, Hex, dbt — connects to Melt unmodified. Every statement gets its own routing decision. The lake copy stays fresh via CDC streams pulled out of Snowflake.
 
