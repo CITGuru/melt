@@ -129,7 +129,12 @@ pub fn build_audit_output(rows: &[QueryHistoryRow], cfg: &AggregateConfig) -> Au
     );
 
     let top_patterns = top_patterns(&pattern_groups);
-    let window = build_window(cfg.window_days, cfg.explicit_window_bounds, min_start, max_start);
+    let window = build_window(
+        cfg.window_days,
+        cfg.explicit_window_bounds,
+        min_start,
+        max_start,
+    );
 
     AuditOutput {
         schema_version: SCHEMA_VERSION,
@@ -212,7 +217,11 @@ fn top_patterns(groups: &BTreeMap<(String, String), PatternAccum>) -> Vec<Patter
         .map(|((fqn, pattern), acc)| PatternRow {
             rank: 0,
             freq: acc.freq,
-            avg_ms: if acc.freq == 0 { 0 } else { acc.total_ms / acc.freq },
+            avg_ms: if acc.freq == 0 {
+                0
+            } else {
+                acc.total_ms / acc.freq
+            },
             table_fqn: fqn.clone(),
             pattern_redacted: pattern.clone(),
             est_dollars_in_window: round2(acc.total_dollars),
