@@ -20,6 +20,7 @@ use sqlparser::ast::{
     TableWithJoins,
 };
 
+use crate::hybrid::strategy::{build_chain_from_config, CollapseDecision, StrategyContext};
 use crate::parse::unparse;
 use crate::translate::translate_ast;
 
@@ -56,10 +57,12 @@ pub fn build_hybrid_plan(
     session: &SessionInfo,
     tables_in_order: &[TableRef],
     per_table_bytes: &[u64],
+    per_table_rows: &[u64],
     registry: &TableSourceRegistry,
     cfg: &RouterConfig,
 ) -> BuildOutcome {
     debug_assert_eq!(tables_in_order.len(), per_table_bytes.len());
+    debug_assert_eq!(tables_in_order.len(), per_table_rows.len());
 
     // Bail-out: any statement mentioning a window function over a
     // Remote table goes to passthrough. Detected as a string probe
@@ -113,13 +116,51 @@ pub fn build_hybrid_plan(
     let mut remote_fragments: Vec<RemoteFragment> = Vec::new();
     let mut attach_rewrites: Vec<AttachRewrite> = Vec::new();
 
-    // When the operator (or the pool's startup probe) has disabled
-    // Attach, the collapse pass also accepts single-scan all-remote
-    // queries. Result: every Remote scan ends up in a fragment, the
-    // attach-rewrite pass below produces zero rewrites, and the plan
-    // is Materialize-only. Keeps the builder a single algorithm
-    // (parameterised by the floor) rather than two divergent paths.
-    let collapse_floor = if cfg.hybrid_attach_enabled { 2 } else { 1 };
+    // Strategy chain decides the collapse floor for this query based
+    // on its configured chain (default `["heuristic"]` ⇒ today's
+    // behaviour exactly). When `["cost", "heuristic"]` is configured,
+    // the cost strategy may flip the floor for single-table queries
+    // when its cost equations show a clear advantage; otherwise the
+    // heuristic answers and behaviour is unchanged.
+    //
+    // Strategy is consulted ONCE per build, against the top-level
+    // remote totals. Inner subqueries inherit the same floor — for
+    // v1 this is acceptable because the cost strategy abstains for
+    // multi-table subtrees anyway, and inner all-remote subqueries
+    // are typically the same size class as the outer query.
+    let remote_per_table_rows: Vec<u64> = tables_in_order
+        .iter()
+        .zip(per_table_rows.iter())
+        .filter(|(t, _)| registry.is_remote(t))
+        .map(|(_, r)| *r)
+        .collect();
+    let remote_per_table_bytes: Vec<u64> = tables_in_order
+        .iter()
+        .zip(per_table_bytes.iter())
+        .filter(|(t, _)| registry.is_remote(t))
+        .map(|(_, b)| *b)
+        .collect();
+    let strategy_chain = build_chain_from_config(&cfg.hybrid_strategy);
+    let strategy_ctx = StrategyContext {
+        scanned_tables: &remote_tables,
+        per_table_rows: &remote_per_table_rows,
+        per_table_bytes: &remote_per_table_bytes,
+        attach_runtime_enabled: cfg.hybrid_attach_enabled,
+    };
+    let (decision, decided_by) = strategy_chain.decide(&strategy_ctx);
+    metrics::counter!(
+        melt_metrics::HYBRID_STRATEGY_DECISIONS,
+        melt_metrics::LABEL_STRATEGY => decided_by,
+        "decision" => match decision {
+            CollapseDecision::Collapse => "collapse",
+            CollapseDecision::Skip => "skip",
+        },
+    )
+    .increment(1);
+    let collapse_floor = match decision {
+        CollapseDecision::Collapse => 1,
+        CollapseDecision::Skip => 2,
+    };
     collapse_all_remote_subqueries(
         ast,
         session,
@@ -679,7 +720,8 @@ mod tests {
         let reg = registry(remote);
         let tables = crate::classify::extract_tables(&ast, &session);
         let bytes = vec![1u64; tables.len()];
-        build_hybrid_plan(&mut ast, &session, &tables, &bytes, &reg, &cfg())
+        let rows = vec![1u64; tables.len()];
+        build_hybrid_plan(&mut ast, &session, &tables, &bytes, &rows, &reg, &cfg())
     }
 
     #[test]

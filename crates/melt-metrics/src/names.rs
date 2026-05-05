@@ -55,3 +55,10 @@ pub const HYBRID_REMOTE_SCAN_BYTES: &str = "melt_hybrid_remote_scan_bytes";
 pub const HYBRID_MATERIALIZE_LATENCY: &str = "melt_hybrid_materialize_latency_seconds";
 pub const HYBRID_ATTACH_NODES_PER_QUERY: &str = "melt_hybrid_attach_nodes_per_query";
 pub const HYBRID_MATERIALIZE_NODES_PER_QUERY: &str = "melt_hybrid_materialize_nodes_per_query";
+
+/// Strategy chain decision counter — labels: `strategy=<name>` (the
+/// chain member that answered, e.g. `cost`, `heuristic`, `fallback`)
+/// and `decision=collapse|skip`. Lets operators see WHO is making
+/// each routing decision and the distribution between Attach and
+/// Materialize at decide-time.
+pub const HYBRID_STRATEGY_DECISIONS: &str = "melt_hybrid_strategy_decisions_total";

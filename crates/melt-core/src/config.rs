@@ -190,6 +190,119 @@ pub struct RouterConfig {
     /// once exceeded.
     #[serde(default = "RouterConfig::default_hybrid_fragment_cache_max_entries")]
     pub hybrid_fragment_cache_max_entries: usize,
+
+    /// Strategy chain for the hybrid router's per-subtree
+    /// Attach-vs-Materialize decision. Strategies are tried in
+    /// order; first concrete decision wins. Each strategy can
+    /// abstain (return `None`), letting the next answer.
+    /// See `crates/melt-router/src/hybrid/strategy.rs` and
+    /// `docs/internal/DUAL_EXECUTION.md` §13.1.
+    ///
+    /// Default chain `["heuristic"]` preserves today's behavior
+    /// exactly. Operators opting into cost-driven decisions set
+    /// `["cost", "heuristic"]` — the cost strategy answers when
+    /// it has stats and a clear advantage, heuristic picks up
+    /// when stats are missing or near-tie.
+    #[serde(default)]
+    pub hybrid_strategy: HybridStrategyConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HybridStrategyConfig {
+    /// Strategy names tried in order. Recognized: `"heuristic"`,
+    /// `"cost"`. Unknown names error at startup. Empty list falls
+    /// back to the built-in default (Skip when Attach is on,
+    /// Collapse otherwise) — same as `["heuristic"]` for current
+    /// behaviour.
+    #[serde(default = "HybridStrategyConfig::default_chain")]
+    pub chain: Vec<String>,
+
+    /// Cost-strategy tunables. Used when `"cost"` appears in `chain`.
+    #[serde(default)]
+    pub cost: CostStrategyConfig,
+}
+
+impl Default for HybridStrategyConfig {
+    fn default() -> Self {
+        Self {
+            chain: Self::default_chain(),
+            cost: CostStrategyConfig::default(),
+        }
+    }
+}
+
+impl HybridStrategyConfig {
+    fn default_chain() -> Vec<String> {
+        vec!["heuristic".to_string()]
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CostStrategyConfig {
+    /// Sustained Snowflake → proxy network throughput, bytes per
+    /// second. Default 100 MB/s. Re-fit per deployment.
+    #[serde(default = "CostStrategyConfig::default_network_bytes_per_sec")]
+    pub network_bytes_per_sec: f64,
+
+    /// DuckDB streaming-scan throughput through the Snowflake
+    /// extension (Attach path). Default 5M rows/sec.
+    #[serde(default = "CostStrategyConfig::default_attach_rows_per_sec")]
+    pub attach_rows_per_sec: f64,
+
+    /// DuckDB scan throughput on a materialized temp table
+    /// (Materialize path's post-stage scan). Default 25M rows/sec.
+    #[serde(default = "CostStrategyConfig::default_materialize_scan_rows_per_sec")]
+    pub materialize_scan_rows_per_sec: f64,
+
+    /// Per-row write cost when staging the temp table. Default
+    /// 12M rows/sec.
+    #[serde(default = "CostStrategyConfig::default_materialize_write_rows_per_sec")]
+    pub materialize_write_rows_per_sec: f64,
+
+    /// Fixed setup overhead per Materialize fragment. Default 5 ms.
+    #[serde(default = "CostStrategyConfig::default_materialize_setup_seconds")]
+    pub materialize_setup_seconds: f64,
+
+    /// Cost difference required to flip a heuristic decision.
+    /// `1.0` ⇒ always pick cheaper; `1.5` ⇒ require ≥ 50 % cheaper.
+    /// Higher values reduce flapping caused by stale stats.
+    /// Default 1.5.
+    #[serde(default = "CostStrategyConfig::default_min_advantage_ratio")]
+    pub min_advantage_ratio: f64,
+}
+
+impl Default for CostStrategyConfig {
+    fn default() -> Self {
+        Self {
+            network_bytes_per_sec: Self::default_network_bytes_per_sec(),
+            attach_rows_per_sec: Self::default_attach_rows_per_sec(),
+            materialize_scan_rows_per_sec: Self::default_materialize_scan_rows_per_sec(),
+            materialize_write_rows_per_sec: Self::default_materialize_write_rows_per_sec(),
+            materialize_setup_seconds: Self::default_materialize_setup_seconds(),
+            min_advantage_ratio: Self::default_min_advantage_ratio(),
+        }
+    }
+}
+
+impl CostStrategyConfig {
+    fn default_network_bytes_per_sec() -> f64 {
+        100.0 * 1_000_000.0
+    }
+    fn default_attach_rows_per_sec() -> f64 {
+        5_000_000.0
+    }
+    fn default_materialize_scan_rows_per_sec() -> f64 {
+        25_000_000.0
+    }
+    fn default_materialize_write_rows_per_sec() -> f64 {
+        12_000_000.0
+    }
+    fn default_materialize_setup_seconds() -> f64 {
+        0.005
+    }
+    fn default_min_advantage_ratio() -> f64 {
+        1.5
+    }
 }
 
 impl RouterConfig {
@@ -246,6 +359,7 @@ impl Default for RouterConfig {
             hybrid_attach_refresh_interval: Self::default_hybrid_attach_refresh_interval(),
             hybrid_fragment_cache_ttl: Self::default_hybrid_fragment_cache_ttl(),
             hybrid_fragment_cache_max_entries: Self::default_hybrid_fragment_cache_max_entries(),
+            hybrid_strategy: HybridStrategyConfig::default(),
         }
     }
 }

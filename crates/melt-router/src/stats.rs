@@ -25,6 +25,9 @@ pub struct Cache {
     tables: Mutex<LruCache<TableRef, (bool, Instant)>>,
     policy: Mutex<LruCache<TableRef, (Option<String>, Instant)>>,
     estimates: EstimateCache,
+    /// Row-count cache parallel to `estimates`. Same key shape, same
+    /// TTL — used by the cost strategy.
+    row_estimates: EstimateCache,
 }
 
 impl Cache {
@@ -40,6 +43,9 @@ impl Cache {
                 std::num::NonZeroUsize::new(POLICY_CACHE_CAP).unwrap(),
             )),
             estimates: Mutex::new(LruCache::new(
+                std::num::NonZeroUsize::new(ESTIMATE_CACHE_CAP).unwrap(),
+            )),
+            row_estimates: Mutex::new(LruCache::new(
                 std::num::NonZeroUsize::new(ESTIMATE_CACHE_CAP).unwrap(),
             )),
         }
@@ -190,6 +196,43 @@ impl Cache {
             .await
             .map(|v| v.iter().sum())
     }
+
+    /// Per-table row-count estimates, parallel to
+    /// [`Self::estimate_bytes_per_table`]. Used by the cost strategy.
+    /// Returns `None` only when the backend errors; backends without
+    /// row-count tracking return zeros (the cost strategy's
+    /// `defers-on-zero` rule turns those into heuristic fallback).
+    pub async fn estimate_rows_per_table(
+        &self,
+        backend: &dyn StorageBackend,
+        tables: &[TableRef],
+    ) -> Option<Vec<u64>> {
+        let now = Instant::now();
+        let key: Vec<TableRef> = tables.to_vec();
+        if let Some((v, at)) = self.row_estimates.lock().peek(&key).cloned() {
+            if now.duration_since(at) < self.estimate_ttl {
+                return Some(v);
+            }
+        }
+        match backend.estimate_table_rows(tables).await {
+            Ok(v) => {
+                if v.len() != tables.len() {
+                    tracing::warn!(
+                        expected = tables.len(),
+                        got = v.len(),
+                        "estimate_table_rows returned wrong-length vec; ignoring",
+                    );
+                    return None;
+                }
+                self.row_estimates.lock().put(key, (v.clone(), now));
+                Some(v)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "estimate_table_rows backend call failed");
+                None
+            }
+        }
+    }
 }
 
 /// Implementation of `melt-core::RouterCache` so sync subsystems can
@@ -199,14 +242,18 @@ impl RouterCache for Cache {
     async fn invalidate_table(&self, table: &TableRef) {
         self.tables.lock().pop(table);
         self.policy.lock().pop(table);
-        let mut estimates = self.estimates.lock();
-        let to_drop: Vec<Vec<TableRef>> = estimates
-            .iter()
-            .filter(|(k, _)| k.iter().any(|t| t == table))
-            .map(|(k, _)| k.clone())
-            .collect();
-        for k in to_drop {
-            estimates.pop(&k);
+        // Drop matching keys from BOTH estimate caches in one pass so
+        // the byte and row caches stay coherent.
+        for cache in [&self.estimates, &self.row_estimates] {
+            let mut estimates = cache.lock();
+            let to_drop: Vec<Vec<TableRef>> = estimates
+                .iter()
+                .filter(|(k, _)| k.iter().any(|t| t == table))
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in to_drop {
+                estimates.pop(&k);
+            }
         }
     }
 
@@ -214,6 +261,7 @@ impl RouterCache for Cache {
         self.tables.lock().clear();
         self.policy.lock().clear();
         self.estimates.lock().clear();
+        self.row_estimates.lock().clear();
     }
 }
 

@@ -439,3 +439,200 @@ async fn choose_strategy_one_table_attach_two_materialize() {
     assert_eq!(choose_strategy(&one, &cfg), BridgeStrategy::Attach);
     assert_eq!(choose_strategy(&two, &cfg), BridgeStrategy::Materialize);
 }
+
+// ── Strategy chain crossover (cost vs heuristic) ────────────────────
+
+/// Backend variant that exposes both bytes AND row counts, so the
+/// cost strategy can do real cost math. Stats are positional —
+/// matched to whatever `tables_in_order` the router computes.
+struct StatsBackend {
+    tables: Vec<TableRef>,
+    bytes_per_table: u64,
+    rows_per_table: u64,
+}
+
+#[async_trait]
+impl StorageBackend for StatsBackend {
+    async fn execute(&self, _sql: &str, _ctx: &QueryContext) -> Result<RecordBatchStream> {
+        Err(MeltError::backend("mock"))
+    }
+    async fn estimate_scan_bytes(&self, t: &[TableRef]) -> Result<Vec<u64>> {
+        Ok(vec![self.bytes_per_table; t.len()])
+    }
+    async fn estimate_table_rows(&self, t: &[TableRef]) -> Result<Vec<u64>> {
+        Ok(vec![self.rows_per_table; t.len()])
+    }
+    async fn tables_exist(&self, t: &[TableRef]) -> Result<Vec<bool>> {
+        Ok(t.iter().map(|x| self.tables.contains(x)).collect())
+    }
+    async fn policy_markers(&self, t: &[TableRef]) -> Result<Vec<Option<String>>> {
+        Ok(vec![None; t.len()])
+    }
+    async fn list_tables(&self) -> Result<Vec<TableRef>> {
+        Ok(self.tables.clone())
+    }
+    fn kind(&self) -> BackendKind {
+        BackendKind::DuckLake
+    }
+}
+
+fn cost_chain_cfg(min_advantage_ratio: f64, attach_rows_per_sec: f64) -> RouterConfig {
+    use melt_core::config::{CostStrategyConfig, HybridStrategyConfig};
+    let mut c = hybrid_cfg();
+    c.hybrid_strategy = HybridStrategyConfig {
+        chain: vec!["cost".into(), "heuristic".into()],
+        cost: CostStrategyConfig {
+            min_advantage_ratio,
+            attach_rows_per_sec,
+            ..CostStrategyConfig::default()
+        },
+    };
+    c
+}
+
+/// With default chain `["heuristic"]`, single-table queries always
+/// route as Attach. Behaviour-preserving baseline.
+#[tokio::test]
+async fn default_chain_preserves_heuristic_attach() {
+    let backend = StatsBackend {
+        tables: vec![],
+        bytes_per_table: 1_000_000,
+        rows_per_table: 10_000,
+    };
+    let matcher = matcher_with_remote(&["REMOTE.PUB.USERS"]);
+    let cache = Arc::new(Cache::new(&hybrid_cfg()));
+    let outcome = route(
+        "SELECT id FROM REMOTE.PUB.USERS",
+        &session(),
+        &backend,
+        &hybrid_cfg(),
+        &sf_cfg(),
+        &cache,
+        Some(&matcher),
+        None,
+    )
+    .await;
+    let plan = match &outcome.route {
+        Route::Hybrid { plan, .. } => plan.clone(),
+        other => panic!("expected Hybrid, got {other:?}"),
+    };
+    // Heuristic single-table → Attach (no Materialize fragments).
+    assert_eq!(plan.attach_rewrites.len(), 1);
+    assert_eq!(plan.remote_fragments.len(), 0);
+}
+
+/// With `["cost", "heuristic"]` chain and constants tuned so
+/// Materialize wins by a clear margin, the cost strategy flips
+/// the decision: a single-table query produces a Materialize
+/// fragment instead of an Attach rewrite.
+#[tokio::test]
+async fn cost_chain_can_flip_single_table_to_materialize() {
+    // Crippled attach throughput (100K rows/sec) makes Materialize
+    // the cost-cheaper choice even for single-table scans.
+    let cfg = cost_chain_cfg(1.5, 100_000.0);
+    let backend = StatsBackend {
+        tables: vec![],
+        bytes_per_table: 1_000_000_000,
+        rows_per_table: 10_000_000,
+    };
+    let matcher = matcher_with_remote(&["REMOTE.PUB.USERS"]);
+    let cache = Arc::new(Cache::new(&cfg));
+    let outcome = route(
+        "SELECT id FROM REMOTE.PUB.USERS",
+        &session(),
+        &backend,
+        &cfg,
+        &sf_cfg(),
+        &cache,
+        Some(&matcher),
+        None,
+    )
+    .await;
+    let plan = match &outcome.route {
+        Route::Hybrid { plan, .. } => plan.clone(),
+        other => panic!("expected Hybrid, got {other:?}"),
+    };
+    // Cost strategy flipped Skip → Collapse: single-table query
+    // becomes a Materialize fragment, not an Attach rewrite.
+    assert_eq!(
+        plan.remote_fragments.len(),
+        1,
+        "expected cost strategy to materialize single-table query when attach is crippled; \
+         attach_rewrites={} fragments={}",
+        plan.attach_rewrites.len(),
+        plan.remote_fragments.len(),
+    );
+    assert_eq!(plan.attach_rewrites.len(), 0);
+}
+
+/// When stats are missing (zero rows estimate), the cost strategy
+/// abstains and the heuristic answers — preserving today's
+/// behaviour. Important regression guard: cost in the chain must
+/// not break the no-stats path.
+#[tokio::test]
+async fn cost_chain_defers_when_row_stats_missing() {
+    let cfg = cost_chain_cfg(1.5, 100_000.0);
+    // bytes are present, rows are zero ⇒ cost strategy abstains
+    let backend = StatsBackend {
+        tables: vec![],
+        bytes_per_table: 1_000_000_000,
+        rows_per_table: 0,
+    };
+    let matcher = matcher_with_remote(&["REMOTE.PUB.USERS"]);
+    let cache = Arc::new(Cache::new(&cfg));
+    let outcome = route(
+        "SELECT id FROM REMOTE.PUB.USERS",
+        &session(),
+        &backend,
+        &cfg,
+        &sf_cfg(),
+        &cache,
+        Some(&matcher),
+        None,
+    )
+    .await;
+    let plan = match &outcome.route {
+        Route::Hybrid { plan, .. } => plan.clone(),
+        other => panic!("expected Hybrid, got {other:?}"),
+    };
+    // Heuristic answers with single-table → Attach.
+    assert_eq!(plan.attach_rewrites.len(), 1);
+    assert_eq!(plan.remote_fragments.len(), 0);
+}
+
+/// Multi-table queries always Materialize regardless of strategy
+/// chain — cost abstains for multi-table, heuristic picks Collapse.
+/// Regression guard so the cost path doesn't accidentally flip
+/// multi-table queries away from Materialize.
+#[tokio::test]
+async fn cost_chain_multi_table_still_materializes() {
+    let cfg = cost_chain_cfg(1.5, 100_000.0);
+    let backend = StatsBackend {
+        tables: vec![],
+        bytes_per_table: 1_000_000,
+        rows_per_table: 10_000,
+    };
+    let matcher = matcher_with_remote(&["REMOTE.PUB.*"]);
+    let cache = Arc::new(Cache::new(&cfg));
+    let outcome = route(
+        "SELECT u.id FROM REMOTE.PUB.USERS u JOIN REMOTE.PUB.ORDERS o ON o.uid = u.id",
+        &session(),
+        &backend,
+        &cfg,
+        &sf_cfg(),
+        &cache,
+        Some(&matcher),
+        None,
+    )
+    .await;
+    let plan = match &outcome.route {
+        Route::Hybrid { plan, .. } => plan.clone(),
+        other => panic!("expected Hybrid, got {other:?}"),
+    };
+    assert!(
+        plan.remote_fragments.len() >= 1,
+        "expected Materialize for multi-table; fragments={} attach={}",
+        plan.remote_fragments.len(),
+        plan.attach_rewrites.len(),
+    );
+}
