@@ -176,6 +176,11 @@ pub struct RemoteFragment {
     /// Tables this fragment scans. ≥ 1; 2+ when pushdown collapsed a
     /// subtree.
     pub scanned_tables: Vec<TableRef>,
+    /// Name of the strategy chain member that decided to materialize
+    /// this fragment (`heuristic`, `cost`, `fallback`, …). Mirrors the
+    /// `strategy` label on `melt_hybrid_strategy_decisions_total` so
+    /// `melt route` output reads the same as the metric.
+    pub decided_by_strategy: String,
 }
 
 /// Recorded for each `RemoteSql` node that chose `Attach`. Mostly used
@@ -189,6 +194,10 @@ pub struct AttachRewrite {
     /// (`sf_link.<db>.<schema>.<table>`). Carried as a string because
     /// SQL renderers may shell-quote individual segments.
     pub alias_reference: String,
+    /// Name of the strategy chain member that left this scan as Attach
+    /// (i.e. returned `Skip` rather than collapsing it). Same vocabulary
+    /// as `RemoteFragment::decided_by_strategy`.
+    pub decided_by_strategy: String,
 }
 
 /// Output of the hybrid plan pipeline. Carried by `Route::Hybrid` and
@@ -212,6 +221,15 @@ pub struct HybridPlan {
     /// Estimated bytes the Materialize path will pull from Snowflake
     /// across all fragments. Used by the size-cap guardrail.
     pub estimated_remote_bytes: u64,
+    /// Names of every strategy in the configured chain, in order.
+    /// Empty when `[router.hybrid_strategy].chain = []`. Carried so
+    /// `melt route` can show the chain even when every member abstains
+    /// and `chain_decided_by` is `"fallback"`.
+    pub strategy_chain: Vec<String>,
+    /// Strategy that returned the top-level collapse decision for this
+    /// build — one of the members of `strategy_chain`, or `"fallback"`
+    /// when every member abstained / the chain is empty.
+    pub chain_decided_by: String,
 }
 
 impl HybridPlan {
@@ -367,9 +385,12 @@ mod tests {
             attach_rewrites: vec![AttachRewrite {
                 original: t("d", "s", "n"),
                 alias_reference: "sf_link.d.s.n".into(),
+                decided_by_strategy: "heuristic".into(),
             }],
             local_sql: String::new(),
             estimated_remote_bytes: 0,
+            strategy_chain: vec!["heuristic".into()],
+            chain_decided_by: "heuristic".into(),
         };
         assert_eq!(attach_only.strategy_label(), "attach");
 
@@ -379,10 +400,13 @@ mod tests {
                 placeholder: "__remote_0".into(),
                 snowflake_sql: "SELECT 1".into(),
                 scanned_tables: vec![t("d", "s", "n")],
+                decided_by_strategy: "heuristic".into(),
             }],
             attach_rewrites: vec![],
             local_sql: String::new(),
             estimated_remote_bytes: 0,
+            strategy_chain: vec!["heuristic".into()],
+            chain_decided_by: "heuristic".into(),
         };
         assert_eq!(materialize_only.strategy_label(), "materialize");
 
@@ -392,13 +416,17 @@ mod tests {
                 placeholder: "__remote_0".into(),
                 snowflake_sql: "SELECT 1".into(),
                 scanned_tables: vec![t("d", "s", "n")],
+                decided_by_strategy: "heuristic".into(),
             }],
             attach_rewrites: vec![AttachRewrite {
                 original: t("d2", "s", "n"),
                 alias_reference: "sf_link.d2.s.n".into(),
+                decided_by_strategy: "heuristic".into(),
             }],
             local_sql: String::new(),
             estimated_remote_bytes: 0,
+            strategy_chain: vec!["heuristic".into()],
+            chain_decided_by: "heuristic".into(),
         };
         assert_eq!(mixed.strategy_label(), "mixed");
     }
