@@ -338,11 +338,20 @@ async fn decide_inner(
         } else {
             cfg
         };
+        // Row-count estimates parallel to `per_table_bytes`. Used by
+        // the cost strategy when the chain includes "cost". Backends
+        // without row tracking return zeros — cost strategy abstains
+        // and the heuristic answers, preserving today's behavior.
+        let per_table_rows = cache
+            .estimate_rows_per_table(backend, &policy_check_tables)
+            .await
+            .unwrap_or_else(|| vec![0; policy_check_tables.len()]);
         let outcome = hybrid::build_hybrid_plan(
             &mut ast,
             session,
             &policy_check_tables,
             &per_table_bytes,
+            &per_table_rows,
             &registry,
             cfg_for_builder,
         );
@@ -666,15 +675,19 @@ pub fn lazy_classify_with_matcher(
         if !remote_tables.is_empty() && cfg.hybrid_execution {
             let registry = TableSourceRegistry::from_iter(remote_tables.iter().cloned());
             // The lazy path has no backend, so we can't get real
-            // per-table byte estimates. Use zeros — size caps aren't
+            // per-table estimates. Use zeros — size caps aren't
             // relevant for the offline classifier, the live decide_inner
-            // enforces them separately.
+            // enforces them separately. Cost strategy will defer
+            // (zeros = no stats), heuristic answers — same shape as
+            // today's offline path.
             let per_table_bytes = vec![0u64; tables.len()];
+            let per_table_rows = vec![0u64; tables.len()];
             let outcome = hybrid::build_hybrid_plan(
                 &mut ast,
                 session,
                 &tables,
                 &per_table_bytes,
+                &per_table_rows,
                 &registry,
                 cfg,
             );

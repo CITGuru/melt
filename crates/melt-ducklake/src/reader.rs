@@ -96,6 +96,10 @@ impl StorageBackend for DuckLakeBackend {
         self.catalog.estimate_scan_bytes(tables).await
     }
 
+    async fn estimate_table_rows(&self, tables: &[TableRef]) -> Result<Vec<u64>> {
+        self.catalog.estimate_table_rows(tables).await
+    }
+
     async fn tables_exist(&self, tables: &[TableRef]) -> Result<Vec<bool>> {
         self.catalog.tables_exist_batch(tables).await
     }
