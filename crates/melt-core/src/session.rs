@@ -59,3 +59,43 @@ impl SessionInfo {
         }
     }
 }
+
+/// Pre-baked session claims used by `melt sessions seed`. Mirror the
+/// fields a real Snowflake login response carries on `data.sessionInfo`,
+/// but populated entirely from local config — no upstream call.
+///
+/// The proxy's `SessionStore::seed` writes one of these into the store
+/// at startup so any login matching the canned demo creds resolves
+/// instantly. Anything that isn't here (e.g. driver-supplied per-call
+/// overrides like `database`) falls back to the seeded defaults — the
+/// goal is "every demo query sees a populated session" rather than
+/// production-realistic per-login state.
+#[derive(Clone, Debug)]
+pub struct SeedClaims {
+    pub user: String,
+    pub account: String,
+    pub database: String,
+    pub schema: String,
+    pub warehouse: Option<String>,
+    pub role: Option<String>,
+}
+
+impl SeedClaims {
+    /// Default claims — built directly from the `SEED_*` constants in
+    /// `melt-core::config`. Operators don't override these; the demo
+    /// always uses one canonical set so the README quickstart and the
+    /// integration test agree.
+    pub fn demo_default() -> Self {
+        use crate::config::{
+            SEED_ACCOUNT, SEED_DATABASE, SEED_ROLE, SEED_SCHEMA, SEED_USER, SEED_WAREHOUSE,
+        };
+        Self {
+            user: SEED_USER.to_string(),
+            account: SEED_ACCOUNT.to_string(),
+            database: SEED_DATABASE.to_string(),
+            schema: SEED_SCHEMA.to_string(),
+            warehouse: Some(SEED_WAREHOUSE.to_string()),
+            role: Some(SEED_ROLE.to_string()),
+        }
+    }
+}

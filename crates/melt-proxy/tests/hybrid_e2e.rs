@@ -216,6 +216,7 @@ fn build_state_with_hybrid(
         tls_cert: None,
         parity: None,
         hybrid_cache,
+        session_mode: melt_core::config::SessionMode::Real,
     }
 }
 

@@ -6,8 +6,10 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
 use axum_server::Handle;
-use melt_core::config::{ProxyConfig, RouterConfig};
-use melt_core::{DiscoveryCatalog, MeltError, Result, StorageBackend, SyncTableMatcher};
+use melt_core::config::{ProxyConfig, RouterConfig, SessionMode, SEED_TOKEN};
+use melt_core::{
+    DiscoveryCatalog, MeltError, Result, SeedClaims, StorageBackend, SyncTableMatcher,
+};
 use melt_router::Cache;
 use melt_snowflake::{SnowflakeClient, SnowflakeConfig};
 use tower_http::decompression::RequestDecompressionLayer;
@@ -59,6 +61,11 @@ pub struct ProxyState {
     /// completion. `RouterCache::invalidate_table` cascades into
     /// [`FragmentCache::invalidate_table`].
     pub hybrid_cache: Option<Arc<FragmentCache>>,
+    /// Session-handling mode. `Real` (default) forwards the Snowflake
+    /// login upstream; `Seed` short-circuits the login + token handlers
+    /// against `sessions.seed(...)` and refuses any execution path that
+    /// would touch upstream Snowflake. See `docs/SEED_MODE.md`.
+    pub session_mode: SessionMode,
 }
 
 /// Public entry point. Spins up the axum HTTPS listener.
@@ -80,6 +87,7 @@ pub async fn serve<F>(
     router_cache: Arc<Cache>,
     sync_matcher: SharedMatcher,
     discovery: Option<Arc<dyn DiscoveryCatalog>>,
+    session_mode: SessionMode,
     shutdown: F,
 ) -> Result<()>
 where
@@ -89,6 +97,13 @@ where
     let sessions = Arc::new(SessionStore::new(limits.clone()));
     let results = ResultStore::new(limits.clone());
     results.clone().run_idle_sweeper();
+
+    if session_mode.is_seed() {
+        // One canonical seeded entry. The login handler will lookup
+        // by `SEED_TOKEN` and reuse this `SessionInfo` as-is.
+        sessions.seed(SEED_TOKEN, SeedClaims::demo_default());
+        tracing::info!("session mode: seed (credential-free demo, see docs/SEED_MODE.md)");
+    }
 
     let tls_cert_path = if cfg.tls_cert.as_os_str().is_empty() {
         None
@@ -135,6 +150,7 @@ where
         tls_cert: tls_cert_path,
         parity,
         hybrid_cache,
+        session_mode,
     };
 
     let app = Router::new()

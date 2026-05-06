@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use melt_core::config::{ProxyConfig, RouterConfig};
+use melt_core::config::{ProxyConfig, RouterConfig, SessionsConfig};
 use melt_core::{PolicyConfig, SyncConfig};
 use melt_snowflake::SnowflakeConfig;
 use serde::Deserialize;
@@ -28,6 +28,11 @@ pub struct MeltConfig {
     #[serde(default)]
     #[allow(dead_code)]
     pub runtime: RuntimeConfig,
+    /// `[sessions]` table — controls credential-free demo mode
+    /// (KI-002 / `melt sessions seed`). Optional in real mode; the
+    /// default `mode = "real"` preserves the production login path.
+    #[serde(default)]
+    pub sessions: SessionsConfig,
     pub backend: BackendTable,
 }
 

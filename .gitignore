@@ -96,5 +96,14 @@ lcov.info
 
 /docs/internal/
 
+# `melt sessions seed` writes the TPC-H sf=0.01 fixture here. ~6 MB,
+# regenerable, never committed.
+var/
+
+# `melt sessions seed` also writes a generated demo config. Treat as
+# regenerable scratch — operators with a real `melt.toml` keep it
+# alongside.
+melt.demo.toml
+
 .claude/
 .cursor/

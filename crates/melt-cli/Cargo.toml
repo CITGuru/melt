@@ -47,5 +47,14 @@ time = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { workspace = true }
 sha2 = "0.10"
 
+# `melt sessions seed` provisions a single-file DuckDB fixture from
+# DuckDB's bundled `tpch` extension. We open it directly here (no
+# Postgres catalog) — the runtime reads it via `LocalDuckDbBackend`.
+duckdb = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3"
+# Serializes the `melt sessions seed` tests that load the DuckDB
+# `tpch` extension. Two tests loading it concurrently from the same
+# test binary segfaults inside libduckdb_extension.
+serial_test = "3"
