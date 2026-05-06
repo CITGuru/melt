@@ -108,6 +108,22 @@ if [[ $SELF_TEST -eq 1 ]]; then
   exit $?
 fi
 
+# /docs/internal/ is fully excluded from this public OSS repo. Reject any
+# tracked file under that path. POWA-92 / KI-002 mirror of the CI guard so
+# the violation fails locally before push.
+internal_offenders="$(git ls-tree -r HEAD --name-only 2>/dev/null | grep -E '^docs/internal/' || true)"
+if [[ -n "$internal_offenders" ]]; then
+  echo "error: tracked files under docs/internal/ (must stay local-only):" >&2
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    echo "  $path" >&2
+  done <<EOF
+$internal_offenders
+EOF
+  echo "fix: 'git rm --cached <path>' and ensure '/docs/internal/' is in .gitignore." >&2
+  exit 1
+fi
+
 if [[ -n "$BRANCH_OVERRIDE" ]]; then
   branch="$BRANCH_OVERRIDE"
 else

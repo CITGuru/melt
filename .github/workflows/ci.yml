@@ -110,3 +110,16 @@ jobs:
             exit 1
           fi
           echo "No Co-Authored-By trailers in $range — ok."
+
+      - name: Reject tracked files under docs/internal/
+        run: |
+          set -euo pipefail
+          offenders=$(git ls-tree -r HEAD --name-only | grep -E '^docs/internal/' || true)
+          if [[ -n "$offenders" ]]; then
+            echo "::error::Tracked files under docs/internal/ (must stay local-only):"
+            echo "$offenders"
+            echo
+            echo "Fix locally: 'git rm --cached <path>' and ensure '/docs/internal/' is in .gitignore."
+            exit 1
+          fi
+          echo "No tracked files under docs/internal/ — ok."
