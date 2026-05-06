@@ -94,16 +94,7 @@ coverage/
 lcov.info
 
 
-/docs/internal/*
-# KI-002 / POWA-92: KNOWN_ISSUES is the operator-visible punch list and
-# the directory README documents this same exclude rule. Force-include
-# past the `/docs/internal/*` blanket ignore. Git re-include rules need
-# the directory itself to remain trackable, so we ignore directory
-# contents (with the trailing `*`) rather than the directory. When you
-# add a file under `docs/internal/`, add a matching `!` line here or it
-# silently won't get tracked. See docs/internal/README.md.
-!/docs/internal/KNOWN_ISSUES.md
-!/docs/internal/README.md
+/docs/internal/
 
 # `melt sessions seed` writes the TPC-H sf=0.01 fixture here. ~6 MB,
 # regenerable, never committed.

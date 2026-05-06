@@ -4,7 +4,7 @@ Uses the **official `snowflake-connector-python`**, unmodified, with the connect
 
 ## Run — credential-free seed mode (no Snowflake account required)
 
-Resolves [KI-002](../../docs/internal/KNOWN_ISSUES.md). Provisions a local TPC-H sf=0.01 fixture (~6 MB) and runs end-to-end against it.
+Provisions a local TPC-H sf=0.01 fixture (~6 MB) and runs end-to-end against it. See [`docs/SEED_MODE.md`](../../docs/SEED_MODE.md) for the operator-facing surface.
 
 ```bash
 # 1. Provision the fixture + demo config (one-time, ~5 s).
