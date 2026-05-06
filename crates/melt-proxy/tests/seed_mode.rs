@@ -32,8 +32,8 @@ use axum::http::{HeaderMap, HeaderValue};
 use bytes::Bytes;
 use duckdb::Connection;
 use melt_core::config::{
-    ProxyLimits, RouterConfig, SessionMode, SEED_ACCOUNT, SEED_DATABASE, SEED_PASSWORD, SEED_SCHEMA,
-    SEED_TOKEN, SEED_USER,
+    ProxyLimits, RouterConfig, SessionMode, SEED_ACCOUNT, SEED_DATABASE, SEED_PASSWORD,
+    SEED_SCHEMA, SEED_TOKEN, SEED_USER,
 };
 use melt_core::{PolicyConfig, PolicyMode, SeedClaims};
 use melt_ducklake::LocalDuckDbBackend;
@@ -223,15 +223,12 @@ async fn token_refresh_returns_seed_envelope_in_seed_mode() {
     generate_fixture(&fixture).unwrap();
     let state = build_seed_state(fixture);
 
-    let resp = token_request(
-        State(state),
-        RawQuery(None),
-        HeaderMap::new(),
-        login_body(),
-    )
-    .await;
+    let resp = token_request(State(state), RawQuery(None), HeaderMap::new(), login_body()).await;
     let (status, json) = response_to_json(resp).await;
-    assert_eq!(status, 200, "token refresh in seed mode should succeed: {json}");
+    assert_eq!(
+        status, 200,
+        "token refresh in seed mode should succeed: {json}"
+    );
     assert_eq!(json["data"]["token"].as_str(), Some(SEED_TOKEN));
 }
 
