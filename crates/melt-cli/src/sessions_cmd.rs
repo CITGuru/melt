@@ -1,6 +1,6 @@
 //! `melt sessions seed` — provisions credential-free demo mode.
 //!
-//! Resolves [KI-002](docs/internal/KNOWN_ISSUES.md). The single-file
+//! Resolves POWA-92. The single-file
 //! DuckDB fixture lives at `var/melt/seed.ddb` and is regenerated on
 //! demand from DuckDB's bundled `tpch` extension at `sf=0.01`. The
 //! companion config at `melt.demo.toml` puts the proxy in seed mode
