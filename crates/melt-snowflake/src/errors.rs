@@ -22,6 +22,10 @@ pub fn snowflake_code(e: &MeltError) -> &'static str {
         MeltError::BackendUnavailable(_) => "000629",
         MeltError::Unauthorized => "390104",
         MeltError::AccountMismatch { .. } => "390201",
+        // Reuse the syntax/semantics code so drivers surface the
+        // message verbatim rather than swallowing it as an internal
+        // server error.
+        MeltError::SeedModeUnsupported(_) => "1003",
         MeltError::Snowflake { code, .. } => Box::leak(code.clone().into_boxed_str()),
         _ => "999999",
     }
@@ -39,6 +43,7 @@ pub fn http_status(e: &MeltError) -> u16 {
         MeltError::AccountMismatch { .. } => 400,
         MeltError::BackendUnavailable(_) => 503,
         MeltError::Snowflake { .. } => 502,
+        MeltError::SeedModeUnsupported(_) => 422,
         _ => 500,
     }
 }

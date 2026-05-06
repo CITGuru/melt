@@ -94,7 +94,21 @@ coverage/
 lcov.info
 
 
-/docs/internal/
+/docs/internal/*
+# KI-002 / POWA-92: KNOWN_ISSUES is the operator-visible punch list.
+# Force-include past the `/docs/internal/*` blanket ignore. Git re-include
+# rules need the directory itself to remain trackable, so we ignore
+# directory contents (with the trailing `*`) rather than the directory.
+!/docs/internal/KNOWN_ISSUES.md
+
+# `melt sessions seed` writes the TPC-H sf=0.01 fixture here. ~6 MB,
+# regenerable, never committed.
+var/
+
+# `melt sessions seed` also writes a generated demo config. Treat as
+# regenerable scratch — operators with a real `melt.toml` keep it
+# alongside.
+melt.demo.toml
 
 .claude/
 .cursor/

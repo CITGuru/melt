@@ -10,6 +10,7 @@ mod debug_cmd;
 mod reload;
 mod runtime;
 mod runtime_init;
+mod sessions_cmd;
 mod shutdown;
 mod sync_cmd;
 
@@ -60,6 +61,14 @@ enum Command {
     Sync {
         #[command(subcommand)]
         action: sync_cmd::SyncAction,
+    },
+    /// Manage demo / development sessions. Today this exposes a single
+    /// `seed` action that provisions credential-free demo mode (KI-002):
+    /// generates a TPC-H sf=0.01 DuckDB fixture and a companion
+    /// `melt.demo.toml`. See `docs/SEED_MODE.md`.
+    Sessions {
+        #[command(subcommand)]
+        action: sessions_cmd::SessionsAction,
     },
     /// Inspection helpers that compare Snowflake and the lake
     /// backend side-by-side — row counts, row samples. Exits
@@ -128,6 +137,15 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn async_main(cli: Cli) -> anyhow::Result<()> {
+    // `sessions` runs BEFORE any proxy or backend exists — it
+    // provisions the seed fixture and writes the demo config that the
+    // rest of the runtime will load. Short-circuit before
+    // `MeltConfig::load` so the operator doesn't need an existing
+    // config to bootstrap the demo path.
+    if let Command::Sessions { action } = cli.command {
+        return sessions_cmd::run(action);
+    }
+
     // `sync` operator sub-commands (reload/list/status/refresh) reach
     // the running proxy or Postgres directly. `sync run` is special:
     // it needs the full runtime, so we let it fall through.
@@ -214,6 +232,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
             action: sync_cmd::SyncAction::Run,
         } => runtime::Command::Sync,
         Command::Sync { .. } => unreachable!("non-Run handled above"),
+        Command::Sessions { .. } => unreachable!("handled above"),
         Command::Debug { .. } => unreachable!("handled above"),
         Command::Audit(_) => unreachable!("handled above"),
     };

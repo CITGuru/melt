@@ -7,6 +7,7 @@
 
 pub mod catalog;
 pub mod config;
+pub mod local;
 pub mod pool;
 pub mod reader;
 pub mod schema;
@@ -16,6 +17,7 @@ pub mod sync;
 
 pub use catalog::{CatalogClient, MarkerRow, StatusSnapshot};
 pub use config::DuckLakeConfig;
+pub use local::LocalDuckDbBackend;
 pub use pool::{DuckDBManager, DuckLakePool};
 pub use reader::DuckLakeBackend;
 pub use schema::SyncReport;

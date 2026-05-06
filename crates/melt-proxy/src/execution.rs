@@ -359,7 +359,19 @@ async fn execute_lake(input: &RouteInput<'_>, outcome: RouteOutcome) -> Result<L
 /// and curated request headers to upstream, and returns the full
 /// [`PassthroughResponse`] so the handler can replay
 /// `Content-Encoding`, `content-type`, etc. on the outbound response.
+///
+/// Refuses with [`MeltError::SeedModeUnsupported`] when the proxy is
+/// running in seed mode — the demo path has no upstream to forward
+/// to. This catches three call sites at once (planned passthrough,
+/// Lake fallback, hybrid fallback) so seed mode can never silently
+/// reach upstream Snowflake.
 async fn execute_passthrough(input: &RouteInput<'_>) -> Result<PassthroughResponse> {
+    if input.state.session_mode.is_seed() {
+        let preview: String = input.sql.chars().take(80).collect();
+        return Err(MeltError::SeedModeUnsupported(format!(
+            "query was routed to upstream Snowflake (sql: {preview:?})"
+        )));
+    }
     input
         .state
         .snowflake

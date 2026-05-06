@@ -2,8 +2,9 @@ use axum::body::Bytes;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use melt_core::config::{SEED_ACCOUNT, SEED_PASSWORD, SEED_TOKEN, SEED_USER};
 use melt_core::{MeltError, SessionInfo};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::server::ProxyState;
@@ -32,6 +33,10 @@ pub async fn login_request(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if state.session_mode.is_seed() {
+        return seed_login_response(&state, &body);
+    }
+
     let resp = match state
         .snowflake
         .forward_login_with_query(query.as_deref(), &headers, body)
@@ -77,6 +82,14 @@ pub async fn token_request(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if state.session_mode.is_seed() {
+        // Token refresh is a no-op in seed mode — the canonical seeded
+        // token never expires within the demo window. Drivers that
+        // call refresh anyway still receive a valid envelope so we
+        // don't break their state machine.
+        return seed_login_response(&state, &body);
+    }
+
     match state
         .snowflake
         .forward_login_with_query(query.as_deref(), &headers, body)
@@ -210,4 +223,91 @@ fn bearer(headers: &HeaderMap) -> Option<String> {
 
 pub(crate) fn extract_bearer(headers: &HeaderMap) -> Option<String> {
     bearer(headers)
+}
+
+/// Seed-mode login short-circuit. Builds a Snowflake-shaped login
+/// response without contacting upstream and reuses the
+/// `SessionStore::seed`-minted entry for the canonical `SEED_TOKEN`.
+///
+/// We accept any login that supplies the documented demo creds
+/// (`account=melt-demo, user=demo, password=demo`); anything else
+/// gets a clean 401 pointing at `docs/SEED_MODE.md`. We don't try to
+/// be a real auth gate — seed mode is a public demo bound to localhost
+/// — but we do reject obvious typos so that a misconfigured client
+/// gets an actionable error rather than a mysterious "no rows" later.
+fn seed_login_response(state: &ProxyState, body: &Bytes) -> Response {
+    let parsed: Value = serde_json::from_slice(body).unwrap_or_else(|_| json!({}));
+    let data = parsed.get("data");
+    let creds_ok = login_matches_seed(data);
+    if !creds_ok {
+        let body = json!({
+            "data": null,
+            "code": "390100",
+            "message": format!(
+                "seed mode requires the canned demo credentials \
+                 (account={SEED_ACCOUNT}, user={SEED_USER}, password={SEED_PASSWORD}). \
+                 See docs/SEED_MODE.md."
+            ),
+            "success": false,
+        });
+        return (StatusCode::UNAUTHORIZED, body.to_string()).into_response();
+    }
+
+    // Look up the session minted at startup — `server::serve` calls
+    // `sessions.seed(SEED_TOKEN, ..)` once. Fall back to a fresh seed
+    // if it's somehow missing (test harness restart) so the response
+    // is still well-formed.
+    let info = state.sessions.lookup(SEED_TOKEN).unwrap_or_else(|| {
+        state
+            .sessions
+            .seed(SEED_TOKEN, melt_core::SeedClaims::demo_default())
+    });
+
+    let payload = build_seed_login_payload(&info);
+    (StatusCode::OK, payload.to_string()).into_response()
+}
+
+/// Build a minimal Snowflake `/session/v1/login-request` response
+/// envelope. Mirrors the fields `parse_login_response` looks for in
+/// the real path so any future change to that parser stays
+/// observable here too.
+fn build_seed_login_payload(info: &Arc<SessionInfo>) -> Value {
+    json!({
+        "data": {
+            "token":               info.token,
+            "masterToken":         info.token,
+            "validityInSeconds":   3600,
+            "masterValidityInSeconds": 3600,
+            "sessionInfo": {
+                "databaseName":  info.database.as_deref().unwrap_or(""),
+                "schemaName":    info.schema.as_deref().unwrap_or(""),
+                "warehouseName": info.warehouse.as_deref().unwrap_or(""),
+                "roleName":      info.role.as_deref().unwrap_or(""),
+            },
+            "sessionId":           info.id.to_string(),
+            "parameters":          [],
+        },
+        "code":     null,
+        "message":  null,
+        "success":  true,
+    })
+}
+
+/// Login-body credential check. Snowflake drivers post `data.LOGIN_NAME`,
+/// `data.PASSWORD`, and `data.ACCOUNT_NAME` (uppercase). We accept any
+/// request that matches all three — case-insensitive on user/account so
+/// the example clients don't have to upper-case manually.
+fn login_matches_seed(data: Option<&Value>) -> bool {
+    let Some(data) = data else { return false };
+    let pick = |key: &str| -> Option<&str> {
+        data.get(key)
+            .and_then(|v| v.as_str())
+            .or_else(|| data.get(key.to_lowercase()).and_then(|v| v.as_str()))
+    };
+    let account = pick("ACCOUNT_NAME").unwrap_or("");
+    let user = pick("LOGIN_NAME").unwrap_or("");
+    let password = pick("PASSWORD").unwrap_or("");
+    account.eq_ignore_ascii_case(SEED_ACCOUNT)
+        && user.eq_ignore_ascii_case(SEED_USER)
+        && password == SEED_PASSWORD
 }

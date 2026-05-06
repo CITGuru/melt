@@ -2,9 +2,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use melt_core::{ProxyLimits, SessionId, SessionInfo};
+use melt_core::{ProxyLimits, SeedClaims, SessionId, SessionInfo};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+/// Default session lifetime for entries minted locally (seed mode and
+/// the post-`forward_login` cache). Real Snowflake responses override
+/// this via `validityInSeconds` parsed in `handlers::session`.
+const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// In-memory session store keyed by the Snowflake-issued bearer token.
 /// Sessions expire after `expires_at`; the proxy checks this before
@@ -35,7 +40,35 @@ impl SessionStore {
             warehouse: None,
             database: None,
             schema: None,
-            expires_at: Instant::now() + Duration::from_secs(60 * 60),
+            expires_at: Instant::now() + DEFAULT_SESSION_TTL,
+            concurrency: Arc::new(Semaphore::new(
+                self.limits.max_concurrent_per_session as usize,
+            )),
+        });
+        self.inner.insert(token, info.clone());
+        info
+    }
+
+    /// Seed-mode counterpart to [`Self::register`]. Inserts a session
+    /// pre-populated from `claims` and keyed by `token` so the login
+    /// handler can short-circuit `POST /session/v1/login-request`
+    /// without an upstream call. Idempotent — calling twice with the
+    /// same token replaces the entry.
+    ///
+    /// Unlike `register`, this does not assume the token came from
+    /// upstream Snowflake; the caller (`server::serve` at startup)
+    /// supplies a deterministic token (`SEED_TOKEN`) so the
+    /// integration test and the example client can agree on it.
+    pub fn seed(&self, token: impl Into<String>, claims: SeedClaims) -> Arc<SessionInfo> {
+        let token = token.into();
+        let info = Arc::new(SessionInfo {
+            id: SessionId(Uuid::new_v4()),
+            token: token.clone(),
+            role: claims.role,
+            warehouse: claims.warehouse,
+            database: Some(claims.database),
+            schema: Some(claims.schema),
+            expires_at: Instant::now() + DEFAULT_SESSION_TTL,
             concurrency: Arc::new(Semaphore::new(
                 self.limits.max_concurrent_per_session as usize,
             )),
