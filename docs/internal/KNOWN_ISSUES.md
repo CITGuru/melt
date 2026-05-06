@@ -10,7 +10,7 @@ A statement that times out at the proxy boundary continues running on the DuckDB
 
 ## KI-002 — Snowflake login forwarding without credentials
 
-**Status:** resolved by [POWA-92](#) (this PR).
+**Status:** resolved by [POWA-92](/POWA/issues/POWA-92) — landed in [melt#27](https://github.com/CITGuru/melt/pull/27). Merge SHA to be appended once the PR lands.
 
 Snowflake drivers always call `POST /session/v1/login-request`. Before this fix the proxy unconditionally forwarded that to upstream, so a fresh checkout with no Snowflake account got a 401 on every subsequent statement — including SQL that would have routed entirely to the Lake.
 

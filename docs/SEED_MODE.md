@@ -2,7 +2,7 @@
 
 Seed mode is the "git clone → working query in five minutes" entry point for Melt. It runs the full proxy — same router, same Snowflake-shaped HTTP surface — against a single-file DuckDB fixture, so prospects can see Melt routing on canned workloads without provisioning a Snowflake account.
 
-Resolves [KI-002](internal/KNOWN_ISSUES.md). Tracked in [POWA-92](../../docs/internal/KNOWN_ISSUES.md).
+Resolves [KI-002](internal/KNOWN_ISSUES.md). Tracked in [POWA-92](/POWA/issues/POWA-92).
 
 ## Quickstart
 

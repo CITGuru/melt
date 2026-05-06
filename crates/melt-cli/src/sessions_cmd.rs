@@ -70,7 +70,10 @@ fn provision_seed(fixture: PathBuf, config: PathBuf, regenerate: bool) -> Result
             std::fs::remove_file(&fixture)
                 .with_context(|| format!("removing stale fixture {}", fixture.display()))?;
         }
-        eprintln!("→ generating TPC-H sf=0.01 fixture at {}", fixture.display());
+        eprintln!(
+            "→ generating TPC-H sf=0.01 fixture at {}",
+            fixture.display()
+        );
         generate_fixture(&fixture).context("generating seed.ddb")?;
         eprintln!("✓ fixture ready");
     }
@@ -190,7 +193,10 @@ hybrid_execution = false
 fn print_next_steps(config: &Path) {
     eprintln!();
     eprintln!("Next steps:");
-    eprintln!("  1. cargo run -p melt-cli -- --config {} all", config.display());
+    eprintln!(
+        "  1. cargo run -p melt-cli -- --config {} all",
+        config.display()
+    );
     eprintln!("  2. cd examples/python && pip install -r requirements.txt");
     eprintln!("  3. MELT_MODE=seed python melt_demo.py");
     eprintln!();
@@ -263,12 +269,12 @@ mod tests {
             TPCH_TABLES.len(),
             "expected all TPC-H tables in {SEED_SCHEMA}"
         );
-        let lineitems: i64 =
-            conn.query_row(&format!("SELECT COUNT(*) FROM {SEED_SCHEMA}.lineitem"), [], |r| {
-                r.get(0)
-            })?;
+        let lineitems: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM {SEED_SCHEMA}.lineitem"),
+            [],
+            |r| r.get(0),
+        )?;
         assert!(lineitems > 0, "lineitem at sf=0.01 should be non-empty");
         Ok(())
     }
 }
-
