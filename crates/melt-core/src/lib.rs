@@ -28,7 +28,8 @@ pub mod translate;
 pub use backend::{BackendKind, NoopRouterCache, RouterCache, StorageBackend};
 pub use config::{
     HybridParityCompareMode, MeltConfigShared, MetricsConfigShared, ProxyConfig, ProxyLimits,
-    ResolvedS3Credentials, RouterConfig, S3Config,
+    ResolvedS3Credentials, RouterConfig, S3Config, SessionMode, SessionsConfig, SEED_ACCOUNT,
+    SEED_DATABASE, SEED_PASSWORD, SEED_ROLE, SEED_SCHEMA, SEED_TOKEN, SEED_USER, SEED_WAREHOUSE,
 };
 pub use error::{CatalogError, MeltError, Result};
 pub use hybrid::{
@@ -38,7 +39,7 @@ pub use hybrid::{
 pub use policy::{PolicyConfig, PolicyKind, PolicyMode, ProtectedTable};
 pub use reload::{ReloadError, ReloadResponse, SkippedField};
 pub use route::{HybridReason, LakeReason, PassthroughReason, Route, RouteKind};
-pub use session::{SessionId, SessionInfo};
+pub use session::{SeedClaims, SessionId, SessionInfo};
 pub use stream::RecordBatchStream;
 pub use sync::{
     DiscoveryCatalog, LazyDiscoverConfig, MatchOutcome, ObjectKind, SyncConfig, SyncSource,

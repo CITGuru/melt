@@ -14,6 +14,7 @@ use crate::reload::ReloadCtx;
 use crate::shutdown::{install_signal_handler, Shutdown};
 
 use crate::config::{ActiveBackend, MeltConfig};
+use melt_core::config::SessionMode;
 
 #[derive(Debug)]
 pub enum Command {
@@ -44,6 +45,10 @@ pub async fn run(cfg: MeltConfig, cfg_path: PathBuf, cmd: Command) -> Result<()>
     let router_cache: Arc<dyn RouterCache> = router_cache_concrete.clone();
     let _ = router_cache; // satisfies unused when only `Route` arm runs
 
+    if cfg.sessions.mode.is_seed() {
+        return run_seed(cfg, snowflake, router_cache_concrete, cmd).await;
+    }
+
     let backend = cfg.active_backend()?;
     match backend {
         #[cfg(feature = "ducklake")]
@@ -54,6 +59,89 @@ pub async fn run(cfg: MeltConfig, cfg_path: PathBuf, cmd: Command) -> Result<()>
         ActiveBackend::Iceberg(ib) => {
             run_iceberg(ib, cfg, cfg_path, snowflake, router_cache_concrete, cmd).await
         }
+    }
+}
+
+/// Seed-mode runtime. Bypasses the backend-feature plumbing entirely:
+/// no Postgres catalog, no Iceberg REST, no `[sync]` matcher — just a
+/// `LocalDuckDbBackend` against the canned fixture. Only the
+/// `Start`, `All`, and `Route` commands make sense here; `Status` and
+/// `Sync` would need real catalog state and are explicitly rejected.
+async fn run_seed(
+    cfg: MeltConfig,
+    snowflake: Arc<SnowflakeClient>,
+    router_cache: Arc<Cache>,
+    cmd: Command,
+) -> Result<()> {
+    use melt_core::config::{SEED_DATABASE, SEED_SCHEMA};
+    use melt_ducklake::LocalDuckDbBackend;
+
+    if let Command::Route(sql) = cmd {
+        return print_lazy_route(&cfg, &sql);
+    }
+
+    let backend: Arc<dyn StorageBackend> = Arc::new(LocalDuckDbBackend::open(
+        cfg.sessions.fixture_path.clone(),
+        SEED_DATABASE,
+        SEED_SCHEMA,
+    )?);
+
+    // No discovery / sync matcher in seed mode — the matcher would
+    // need a control catalog we don't have. The router falls back
+    // to `tables_exist` against the local DuckDB, which is exactly
+    // what we want.
+    let sync_matcher: SharedMatcher = Arc::new(ArcSwap::from_pointee(None));
+    let discovery: Option<Arc<dyn DiscoveryCatalog>> = None;
+    let metrics = metrics_cfg(&cfg);
+    let readiness = melt_metrics::ReadinessProbe::always_ready();
+
+    match cmd {
+        Command::Start | Command::All => {
+            // `All` collapses to `Start` because there's no sync work
+            // to do — the fixture is the source of truth and is
+            // generated out-of-band by `melt sessions seed --init`.
+            let shutdown = Shutdown::new();
+            install_signal_handler(shutdown.clone());
+            let shutdown_proxy = shutdown.notify();
+            let shutdown_metrics = shutdown.notify();
+            let _ = router_cache; // unused in this arm; kept for parity with run_ducklake
+            tokio::try_join!(
+                async {
+                    melt_proxy::serve(
+                        cfg.proxy.clone(),
+                        backend.clone(),
+                        snowflake.clone(),
+                        cfg.snowflake.clone(),
+                        cfg.router.clone(),
+                        Arc::new(Cache::new(&cfg.router)),
+                        sync_matcher.clone(),
+                        discovery.clone(),
+                        SessionMode::Seed,
+                        async move { shutdown_proxy.notified().await },
+                    )
+                    .await
+                    .map_err(|e| anyhow!(e))
+                },
+                async {
+                    melt_metrics::serve_admin(&metrics, readiness, async move {
+                        shutdown_metrics.notified().await
+                    })
+                    .await
+                    .map_err(|e| anyhow!(e))
+                }
+            )?;
+            Ok(())
+        }
+        Command::Sync => Err(anyhow!(
+            "seed mode: `sync` is not supported (the demo fixture is read-only). \
+             Switch to `[sessions].mode = \"real\"` to use sync."
+        )),
+        Command::Status { json: _ } => {
+            println!("seed mode active");
+            println!("fixture: {}", cfg.sessions.fixture_path.display());
+            Ok(())
+        }
+        Command::Route(_) => unreachable!("handled above"),
     }
 }
 
@@ -137,6 +225,7 @@ async fn run_ducklake(
                         router_cache.clone(),
                         sync_matcher.clone(),
                         Some(discovery.clone()),
+                        SessionMode::Real,
                         async move { shutdown_proxy.notified().await },
                     )
                     .await
@@ -216,6 +305,7 @@ async fn run_ducklake(
                         router_cache.clone(),
                         sync_matcher.clone(),
                         Some(discovery.clone()),
+                        SessionMode::Real,
                         async move { shutdown_proxy.notified().await },
                     )
                     .await
@@ -345,6 +435,7 @@ async fn run_iceberg(
                         router_cache.clone(),
                         sync_matcher.clone(),
                         discovery.clone(),
+                        SessionMode::Real,
                         async move { shutdown_proxy.notified().await },
                     )
                     .await
@@ -432,6 +523,7 @@ async fn run_iceberg(
                         router_cache.clone(),
                         sync_matcher.clone(),
                         discovery.clone(),
+                        SessionMode::Real,
                         async move { shutdown_proxy.notified().await },
                     )
                     .await

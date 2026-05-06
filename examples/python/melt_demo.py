@@ -5,11 +5,23 @@ and `protocol` differ from a normal Snowflake connection. Each query
 exercises a different routing path so you can watch Melt's logs and
 confirm the proxy is making the decisions you expect.
 
-Auth: prefers SNOWFLAKE_PASSWORD (a real password or a Programmatic
-Access Token). Falls back to RSA key-pair when SNOWFLAKE_PRIVATE_KEY
-(PEM string) or SNOWFLAKE_PRIVATE_KEY_FILE (path to .p8 / .pem) is set.
+Two modes:
 
-Run:
+* `MELT_MODE=seed` — credential-free demo against a local TPC-H sf=0.01
+  fixture. No Snowflake account required. Uses canned creds that
+  match what `melt sessions seed` writes into `melt.demo.toml`.
+* default (real mode) — forwards login to upstream Snowflake. Set
+  SNOWFLAKE_USER / SNOWFLAKE_ACCOUNT / one of SNOWFLAKE_PASSWORD or
+  SNOWFLAKE_PRIVATE_KEY[_FILE] to authenticate.
+
+Run (seed mode):
+
+    cargo run -p melt-cli -- sessions seed
+    cargo run -p melt-cli -- --config melt.demo.toml all  # in another terminal
+    pip install -r requirements.txt
+    MELT_MODE=seed python melt_demo.py
+
+Run (real mode):
 
     pip install -r requirements.txt
     export SNOWFLAKE_USER=...  SNOWFLAKE_ACCOUNT=...
@@ -58,6 +70,23 @@ class Settings:
     def from_env(cls) -> "Settings":
         # Defaults match the local docker compose setup (see
         # docker/melt.docker.toml). Override any of them with env vars.
+        # In seed mode (`MELT_MODE=seed`) every Snowflake-* default
+        # comes from the canned demo creds that `melt sessions seed`
+        # writes — matching what `melt-core::config::SEED_*` defines.
+        if os.environ.get("MELT_MODE", "").lower() == "seed":
+            return cls(
+                melt_host=os.environ.get("MELT_HOST", "127.0.0.1"),
+                melt_port=int(os.environ.get("MELT_PORT", "8443")),
+                melt_protocol=os.environ.get("MELT_PROTOCOL", "http"),
+                account=os.environ.get("SNOWFLAKE_ACCOUNT", "melt-demo"),
+                user=os.environ.get("SNOWFLAKE_USER", "demo"),
+                password=os.environ.get("SNOWFLAKE_PASSWORD", "demo"),
+                private_key_pem=None,
+                database=os.environ.get("SNOWFLAKE_DATABASE", "TPCH"),
+                schema=os.environ.get("SNOWFLAKE_SCHEMA", "SF01"),
+                warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "MELT_DEMO_WH"),
+                role=os.environ.get("SNOWFLAKE_ROLE", "PUBLIC"),
+            )
         try:
             return cls(
                 melt_host=os.environ.get("MELT_HOST", "127.0.0.1"),
@@ -77,7 +106,8 @@ class Settings:
                 f"missing required env var: {missing.args[0]}\n"
                 "Set SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, and one of "
                 "SNOWFLAKE_PRIVATE_KEY / SNOWFLAKE_PRIVATE_KEY_FILE / "
-                "SNOWFLAKE_PASSWORD."
+                "SNOWFLAKE_PASSWORD. Or use `MELT_MODE=seed` for the "
+                "credential-free demo path."
             )
 
 
@@ -153,7 +183,7 @@ def _connect_kwargs(s: Settings) -> dict:
 
 
 # Each entry: (label, sql, expected_route, why)
-QUERIES: list[tuple[str, str, str, str]] = [
+REAL_QUERIES: list[tuple[str, str, str, str]] = [
     (
         "pure expression",
         "SELECT 1 + 1 AS answer",
@@ -181,6 +211,39 @@ QUERIES: list[tuple[str, str, str, str]] = [
         "FROM information_schema.tables LIMIT 5",
         "snowflake",
         "INFORMATION_SCHEMA references trigger UsesSnowflakeFeature passthrough",
+    ),
+]
+
+# Seed-mode queries are tuned to the TPC-H sf=0.01 fixture that
+# `melt sessions seed` provisions. The acceptance criterion calls
+# for at least three queries that route to lake; we exceed that
+# (3 SELECT shapes) and include one explicit "this requires upstream"
+# query that returns SeedModeUnsupported (HTTP 422) so operators see
+# the boundary.
+SEED_QUERIES: list[tuple[str, str, str, str]] = [
+    (
+        "row count",
+        "SELECT COUNT(*) AS n FROM TPCH.SF01.lineitem",
+        "lake",
+        "fully-qualified Lake table; router strips DB prefix to local schema",
+    ),
+    (
+        "small projection",
+        "SELECT n_nationkey, n_name FROM TPCH.SF01.nation ORDER BY n_nationkey LIMIT 5",
+        "lake",
+        "tiny TPC-H reference table — pulled from the local DuckDB fixture",
+    ),
+    (
+        "aggregate",
+        "SELECT o_orderstatus, COUNT(*) AS n FROM TPCH.SF01.orders GROUP BY 1",
+        "lake",
+        "GROUP BY against the orders fact table",
+    ),
+    (
+        "seed boundary",
+        "SELECT table_name FROM INFORMATION_SCHEMA.TABLES",
+        "seed-mode-unsupported (HTTP 422)",
+        "INFORMATION_SCHEMA would route to upstream — seed mode refuses cleanly",
     ),
 ]
 
@@ -238,8 +301,13 @@ def main() -> int:
               "  is correct.")
         return 1
 
+    queries = (
+        SEED_QUERIES
+        if os.environ.get("MELT_MODE", "").lower() == "seed"
+        else REAL_QUERIES
+    )
     with closing(conn) as conn, closing(conn.cursor()) as cur:
-        for label, sql, expected, why in QUERIES:
+        for label, sql, expected, why in queries:
             run_one(cur, label, sql, expected, why)
 
     header("Done")

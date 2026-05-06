@@ -62,6 +62,14 @@ pub enum MeltError {
         supplied: String,
     },
 
+    /// Caller asked for an operation that requires upstream Snowflake
+    /// while the proxy is running in seed mode. We refuse rather than
+    /// silently failing — the demo path is read-only, lake-only, and
+    /// only populated with the canned TPC-H fixture. Real workloads
+    /// belong on `mode = "real"`. See `docs/SEED_MODE.md`.
+    #[error("seed mode does not support this operation: {0} — switch to `mode = \"real\"` (see docs/SEED_MODE.md)")]
+    SeedModeUnsupported(String),
+
     #[error("other: {0}")]
     Other(String),
 }
@@ -81,6 +89,9 @@ impl MeltError {
     }
     pub fn other(msg: impl Into<String>) -> Self {
         MeltError::Other(msg.into())
+    }
+    pub fn seed_unsupported(msg: impl Into<String>) -> Self {
+        MeltError::SeedModeUnsupported(msg.into())
     }
 }
 

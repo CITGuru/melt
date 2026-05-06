@@ -2,7 +2,25 @@
 
 Uses the **official `snowflake-connector-python`**, unmodified, with the connection pointed at a local Melt proxy via `host` / `port` / `protocol`.
 
-## Run
+## Run — credential-free seed mode (no Snowflake account required)
+
+Resolves [KI-002](../../docs/internal/KNOWN_ISSUES.md). Provisions a local TPC-H sf=0.01 fixture (~6 MB) and runs end-to-end against it.
+
+```bash
+# 1. Provision the fixture + demo config (one-time, ~5 s).
+cargo run -p melt-cli -- sessions seed
+
+# 2. Start the proxy in another terminal (no Snowflake creds).
+cargo run -p melt-cli -- --config melt.demo.toml all
+
+# 3. Run the example.
+pip install -r requirements.txt
+MELT_MODE=seed python melt_demo.py
+```
+
+The demo creds (`account=melt-demo`, `user=demo`, `password=demo`, `database=TPCH`, `schema=SF01`) are baked into both `melt sessions seed` and the example — no env vars needed. See [docs/SEED_MODE.md](../../docs/SEED_MODE.md) for what seed mode supports.
+
+## Run — real mode (forwards login to upstream Snowflake)
 
 ```bash
 pip install -r requirements.txt

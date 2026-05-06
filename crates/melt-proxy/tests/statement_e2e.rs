@@ -109,6 +109,7 @@ fn build_state(backend: Arc<dyn StorageBackend>) -> ProxyState {
         tls_cert: None,
         parity: None,
         hybrid_cache: None,
+        session_mode: melt_core::config::SessionMode::Real,
     }
 }
 

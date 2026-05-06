@@ -2,7 +2,24 @@
 
 Uses [`snowflake-connector-rs`](https://crates.io/crates/snowflake-connector-rs) (estie-inc, v0.9) — the canonical Rust Snowflake client — with the connection pointed at a local Melt proxy via `SnowflakeEndpointConfig::custom_base_url`.
 
-## Run
+## Run — credential-free seed mode (no Snowflake account required)
+
+Resolves [KI-002](../../docs/internal/KNOWN_ISSUES.md). Provisions a local TPC-H sf=0.01 fixture (~6 MB) and runs end-to-end against it.
+
+```bash
+# 1. Provision the fixture + demo config (one-time, ~5 s).
+cargo run -p melt-cli -- sessions seed
+
+# 2. Start the proxy in another terminal.
+cargo run -p melt-cli -- --config melt.demo.toml all
+
+# 3. Run the example.
+MELT_MODE=seed cargo run --release
+```
+
+The demo creds (`account=melt-demo`, `user=demo`, `password=demo`, `database=TPCH`, `schema=SF01`) are baked into both `melt sessions seed` and the example — no env vars needed. See [docs/SEED_MODE.md](../../docs/SEED_MODE.md) for what seed mode supports.
+
+## Run — real mode (forwards login to upstream Snowflake)
 
 ```bash
 export MELT_HOST=127.0.0.1

@@ -6,7 +6,23 @@
 //! routing path so you can watch Melt's logs and confirm the proxy
 //! is making the decisions you expect.
 //!
-//! Run:
+//! Two modes:
+//!
+//! * `MELT_MODE=seed` — credential-free demo against a local TPC-H
+//!   sf=0.01 fixture (POWA-92, KI-002). Defaults match what
+//!   `melt sessions seed` writes into `melt.demo.toml`.
+//! * default (real mode) — forwards login to upstream Snowflake; set
+//!   `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`.
+//!
+//! Run (seed mode):
+//!
+//! ```bash
+//! cargo run -p melt-cli -- sessions seed
+//! cargo run -p melt-cli -- --config melt.demo.toml all  # in another terminal
+//! MELT_MODE=seed cargo run --release
+//! ```
+//!
+//! Run (real mode):
 //!
 //! ```bash
 //! export SNOWFLAKE_ACCOUNT=...  SNOWFLAKE_USER=...  SNOWFLAKE_PASSWORD=...
@@ -41,8 +57,20 @@ struct Settings {
 impl Settings {
     fn from_env() -> Result<Self> {
         // Defaults match the local docker compose setup. Override any
-        // of them with env vars.
-        let req = |k: &str| env::var(k).map_err(|_| anyhow!("missing required env var: {k}"));
+        // of them with env vars. In seed mode (`MELT_MODE=seed`) every
+        // SNOWFLAKE_* default comes from `melt-core::config::SEED_*`
+        // — same canned creds the Python example uses.
+        let seed = env::var("MELT_MODE")
+            .map(|v| v.eq_ignore_ascii_case("seed"))
+            .unwrap_or(false);
+        let env_or = |k: &str, default: &str| env::var(k).unwrap_or_else(|_| default.to_string());
+        let req = |k: &str, fallback: Option<&str>| -> Result<String> {
+            match (env::var(k).ok(), fallback) {
+                (Some(v), _) => Ok(v),
+                (None, Some(d)) => Ok(d.to_string()),
+                (None, None) => Err(anyhow!("missing required env var: {k}")),
+            }
+        };
         Ok(Self {
             melt_host: env::var("MELT_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
             melt_port: env::var("MELT_PORT")
@@ -50,17 +78,20 @@ impl Settings {
                 .parse()
                 .context("MELT_PORT must be a u16")?,
             melt_protocol: env::var("MELT_PROTOCOL").unwrap_or_else(|_| "http".into()),
-            account: req("SNOWFLAKE_ACCOUNT")?,
-            user: req("SNOWFLAKE_USER")?,
-            password: req("SNOWFLAKE_PASSWORD")?,
-            database: env::var("SNOWFLAKE_DATABASE").unwrap_or_else(|_| "ANALYTICS".into()),
-            schema: env::var("SNOWFLAKE_SCHEMA").unwrap_or_else(|_| "PUBLIC".into()),
+            account: req("SNOWFLAKE_ACCOUNT", seed.then_some("melt-demo"))?,
+            user: req("SNOWFLAKE_USER", seed.then_some("demo"))?,
+            password: req("SNOWFLAKE_PASSWORD", seed.then_some("demo"))?,
+            database: env_or(
+                "SNOWFLAKE_DATABASE",
+                if seed { "TPCH" } else { "ANALYTICS" },
+            ),
+            schema: env_or("SNOWFLAKE_SCHEMA", if seed { "SF01" } else { "PUBLIC" }),
         })
     }
 }
 
-/// Each entry: (label, sql, expected_route, why)
-const QUERIES: &[(&str, &str, &str, &str)] = &[
+/// Each entry: (label, sql, expected_route, why). Real-mode workload.
+const REAL_QUERIES: &[(&str, &str, &str, &str)] = &[
     (
         "pure expression",
         "SELECT 1 + 1 AS answer",
@@ -88,6 +119,38 @@ const QUERIES: &[(&str, &str, &str, &str)] = &[
          FROM information_schema.tables LIMIT 5",
         "snowflake",
         "INFORMATION_SCHEMA → UsesSnowflakeFeature (§A.10)",
+    ),
+];
+
+/// Seed-mode workload — runs against the canned TPC-H sf=0.01 fixture
+/// provisioned by `melt sessions seed`. The acceptance criterion calls
+/// for ≥3 lake-routed queries; we exceed that and add an explicit
+/// boundary case so operators see what seed mode refuses.
+const SEED_QUERIES: &[(&str, &str, &str, &str)] = &[
+    (
+        "row count",
+        "SELECT COUNT(*) AS n FROM TPCH.SF01.lineitem",
+        "lake",
+        "fully-qualified Lake table; router strips DB prefix to local schema",
+    ),
+    (
+        "small projection",
+        "SELECT n_nationkey, n_name FROM TPCH.SF01.nation \
+         ORDER BY n_nationkey LIMIT 5",
+        "lake",
+        "tiny TPC-H reference table — pulled from the local DuckDB fixture",
+    ),
+    (
+        "aggregate",
+        "SELECT o_orderstatus, COUNT(*) AS n FROM TPCH.SF01.orders GROUP BY 1",
+        "lake",
+        "GROUP BY against the orders fact table",
+    ),
+    (
+        "seed boundary",
+        "SELECT table_name FROM INFORMATION_SCHEMA.TABLES",
+        "seed-mode-unsupported (HTTP 422)",
+        "INFORMATION_SCHEMA would route to upstream — seed mode refuses cleanly",
     ),
 ];
 
@@ -179,7 +242,15 @@ async fn main() -> Result<()> {
         }
     };
 
-    for (label, sql, expected, why) in QUERIES {
+    let queries = if env::var("MELT_MODE")
+        .map(|v| v.eq_ignore_ascii_case("seed"))
+        .unwrap_or(false)
+    {
+        SEED_QUERIES
+    } else {
+        REAL_QUERIES
+    };
+    for (label, sql, expected, why) in queries {
         run_one(&session, label, sql, expected, why).await;
     }
 

@@ -39,3 +39,4 @@ rdkafka = { version = "0.36", default-features = false, features = ["tokio", "cm
 
 [dev-dependencies]
 toml = { workspace = true }
+tempfile = "3"

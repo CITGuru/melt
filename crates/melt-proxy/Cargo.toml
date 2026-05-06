@@ -46,3 +46,15 @@ sha2 = "0.10"
 # `IcebergPool::read` use under reader-pool saturation. See KI-001
 # mitigation #2 in `docs/internal/KNOWN_ISSUES.md` (POWA-164).
 deadpool = { workspace = true }
+
+# `tests/seed_mode.rs` (POWA-92 / KI-002) generates a TPC-H sf=0.01
+# fixture in a tempdir and drives the credential-free demo path. The
+# duckdb extension loader segfaults when two tests `INSTALL tpch`
+# concurrently from the same target — `serial_test` forces those tests
+# onto a process-global mutex so the rest of the suite still runs in
+# parallel.
+melt-ducklake = { workspace = true }
+duckdb = { workspace = true }
+tempfile = "3"
+anyhow = { workspace = true }
+serial_test = "3"
