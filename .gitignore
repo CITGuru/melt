@@ -93,8 +93,44 @@ callgrind.out.*
 coverage/
 lcov.info
 
+# ── Node / Next.js (apps/landing) ─────────────────────────────────
+# Per-package modules and Next.js build artifacts. The landing app
+# under apps/landing/ owns its own scoped .gitignore as well; these
+# entries make sure none of it leaks into the workspace root.
+node_modules/
+**/node_modules/
+.pnp
+.pnp.*
+.yarn/cache
+.yarn/install-state.gz
+
+# Next.js
+.next/
+**/.next/
+out/
+**/out/
+next-env.d.ts
+**/next-env.d.ts
+
+# Build/cache artifacts from JS tooling
+.turbo/
+**/.turbo/
+*.tsbuildinfo
+.eslintcache
+
+# Vercel deploy metadata
+.vercel/
+**/.vercel/
+
+# JS package manager debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
 
 /docs/internal/
 
 .claude/
 .cursor/
+
