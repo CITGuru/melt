@@ -1,0 +1,31 @@
+<svg
+  width="180"
+  height="180"
+  viewBox="0 0 180 180"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <defs>
+    <linearGradient id="meltAppleBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0e1320" />
+      <stop offset="100%" stop-color="#080b14" />
+    </linearGradient>
+    <linearGradient id="meltAppleDrop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFB68A" />
+      <stop offset="100%" stop-color="#F0541E" />
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="40" fill="url(#meltAppleBg)" />
+  <path
+    d="M90 36c26 31 50 56 50 90a50 50 0 1 1-100 0c0-34 24-59 50-90Z"
+    fill="url(#meltAppleDrop)"
+  />
+  <path
+    d="M71 119c1 13 9 22 20 22"
+    stroke="#ffffff"
+    stroke-opacity="0.9"
+    stroke-width="9"
+    stroke-linecap="round"
+    fill="none"
+  />
+</svg>

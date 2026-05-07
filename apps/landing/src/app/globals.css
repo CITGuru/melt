@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* Registered up front so Tailwind v4 / Lightning CSS doesn't reorder it
+   below the rule that depends on it. */
+@property --pill-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes spin-pill-border {
+  to { --pill-angle: 360deg; }
+}
+
+:root {
+  /* Light pastel canvas */
+  --bg: #eef3fb;
+  --bg-2: #f7f9fc;
+  --ink: #0e1320;
+  --ink-2: #2a3142;
+  --muted: #5b6478;
+  --muted-2: #828a9c;
+  --line: rgba(14, 19, 32, 0.08);
+  --line-2: rgba(14, 19, 32, 0.14);
+  --card: #ffffff;
+  --accent: #f06a2b;
+  --accent-2: #ffb381;
+  --sky-1: #cad7eb;
+  --sky-2: #e3eaf5;
+  --sky-3: #f6f8fc;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-card: var(--card);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-sky-1: var(--sky-1);
+  --color-sky-2: var(--sky-2);
+  --color-sky-3: var(--sky-3);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Sky gradient used in hero & CTA hero variants */
+.bg-sky {
+  background:
+    radial-gradient(120% 80% at 50% 0%, #c7d6ee 0%, #d8e2f1 35%, #e8eef7 65%, #f5f7fb 100%);
+}
+
+.bg-sky-soft {
+  background:
+    radial-gradient(120% 100% at 50% -20%, #d6e0f0 0%, #eaeff7 50%, #f5f7fb 100%);
+}
+
+/* Cloud-y mist used at section transitions */
+.section-mist {
+  background:
+    radial-gradient(60% 40% at 50% 0%, rgba(255,255,255,0.85), rgba(255,255,255,0) 70%);
+}
+
+/* Soft drop shadow for floating cards */
+.soft-shadow {
+  box-shadow:
+    0 1px 0 rgba(14, 19, 32, 0.04),
+    0 8px 30px rgba(14, 19, 32, 0.06),
+    0 30px 60px -20px rgba(14, 19, 32, 0.10);
+}
+
+.soft-shadow-lg {
+  box-shadow:
+    0 1px 0 rgba(14, 19, 32, 0.04),
+    0 14px 40px rgba(14, 19, 32, 0.08),
+    0 50px 100px -30px rgba(14, 19, 32, 0.18);
+}
+
+/* Marquee track for trust strip */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-track { animation: marquee 38s linear infinite; }
+
+/* Subtle dotted grid for decorative areas */
+.bg-dots {
+  background-image: radial-gradient(rgba(14, 19, 32, 0.10) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* Selection */
+::selection {
+  background: var(--ink);
+  color: #fff;
+}
+
+/* Float animation for clouds */
+@keyframes drift-x {
+  0%   { transform: translateX(0) }
+  50%  { transform: translateX(20px) }
+  100% { transform: translateX(0) }
+}
+.drift-slow  { animation: drift-x 14s ease-in-out infinite; }
+.drift-slow-2{ animation: drift-x 18s ease-in-out infinite; }
+
+/* Dropdown / overlay animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 240ms ease-out forwards; }
+.animate-fade-up { animation: fade-up 280ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+
+/* Animated rotating gradient border for the hero announcement pill.
+   Falls back to the static underlay color on browsers without @property
+   support, since --pill-angle just stays at its declared 0deg. */
+.spin-border-pill {
+  --pill-angle: 0deg;
+  position: relative;
+  display: inline-flex;
+  border-radius: 9999px;
+  padding: 2px;
+  background:
+    conic-gradient(
+      from var(--pill-angle),
+      transparent 0deg,
+      #6b9ad9 40deg,
+      #ffb381 110deg,
+      #f06a2b 160deg,
+      transparent 230deg,
+      transparent 360deg
+    ),
+    rgba(14, 19, 32, 0.14);
+  animation: spin-pill-border 4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin-border-pill { animation: none; }
+}
+
+/* Prose styling for blog/legal pages */
+.prose-melt {
+  color: var(--ink-2);
+  line-height: 1.75;
+  font-size: 17px;
+}
+.prose-melt h2 {
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 2em;
+  margin-bottom: 0.6em;
+}
+.prose-melt h3 {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 1.6em;
+  margin-bottom: 0.5em;
+}
+.prose-melt p { margin-bottom: 1.1em; }
+.prose-melt ul { margin: 1em 0; padding-left: 1.25em; }
+.prose-melt li { margin-bottom: 0.5em; list-style: disc; }
+.prose-melt a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.prose-melt code {
+  background: #eef2f8;
+  padding: 0.15em 0.4em;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+.prose-melt blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.2em 0 0.2em 1em;
+  margin: 1.4em 0;
+  color: var(--ink-2);
+}
