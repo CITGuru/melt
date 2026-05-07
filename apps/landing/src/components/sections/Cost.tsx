@@ -17,7 +17,7 @@ export function Cost() {
           <SectionHeader
             align="left"
             title={<>Track credits, save more, sleep better.</>}
-            description="See exactly which workloads route off Snowflake, what they would have cost, and what they cost now. Whether you bill by warehouse, by team, or by agent — melt keeps the books straight."
+            description="See exactly which workloads route off Snowflake, which engine they ran on, what they would have cost, and what they cost now. Whether you bill by warehouse, by team, or by agent — melt keeps the books straight."
           />
           <div className="flex flex-wrap gap-2">
             {chips.map((c) => (
@@ -25,7 +25,9 @@ export function Cost() {
             ))}
           </div>
           <div className="mt-2">
-            <PrimaryCTA href="/contact-us">Try Melt free</PrimaryCTA>
+            <PrimaryCTA href="https://github.com/citguru/melt" external>
+              Try Melt free
+            </PrimaryCTA>
           </div>
         </div>
       </div>

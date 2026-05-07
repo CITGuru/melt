@@ -1,7 +1,7 @@
 import { Nav } from "@/components/Nav";
 import { Hero } from "@/components/sections/Hero";
 import { TrustStrip } from "@/components/sections/TrustStrip";
-import { DeviceSync } from "@/components/sections/DeviceSync";
+import { Strategies } from "@/components/sections/Strategies";
 import { Routing } from "@/components/sections/Routing";
 import { Cost } from "@/components/sections/Cost";
 import { Simplicity } from "@/components/sections/Simplicity";
@@ -18,16 +18,17 @@ export default function Home() {
       <Nav />
       <main className="flex flex-col w-full">
         <Hero />
-        <TrustStrip label="Trusted by 7,000+ data teams, agents, and analytics studios" />
-        <DeviceSync />
+        <TrustStrip label="Trusted by data teams, agents, and analytics studios" items={["Finic", "OpenDuck", "Mielto", "Pawrly", "Finic", "OpenDuck", "PowrLabs", "Pawrly", "Finic", "OpenDuck", "Mielto", "Pawrly"]} />
+        {/* <DeviceSync /> */}
+        <Strategies />
         <Routing />
         <Cost />
         <Simplicity />
-        <Testimonials />
+        {/* <Testimonials /> — hidden until we have real partner quotes */}
         <Pricing />
-        <TrustStrip label="Trusted by 7,000+ data teams, agents, and analytics studios" />
+        <TrustStrip label="Supported integrations and drivers" />
         <BlogTeasers />
-        <Community />
+        {/* <Community /> — hidden until we have real social handles + counts */}
         <CTA />
       </main>
       <Footer />

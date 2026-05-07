@@ -23,44 +23,77 @@ type FeatureItem = {
   description: string;
   href: string;
   icon: React.ReactNode;
+  comingSoon?: boolean;
 };
 
-const featureItems: FeatureItem[] = [
+type FeatureGroup = {
+  name: string;
+  comingSoon?: boolean;
+  items: FeatureItem[];
+};
+
+const featureGroups: FeatureGroup[] = [
   {
-    title: "Per-query routing",
-    description: "Parse, classify, and route every statement on its own merit.",
-    href: "/#features",
-    icon: <IconRouting />,
+    name: "Query routing",
+    items: [
+      {
+        title: "Per-query routing",
+        description: "Parse, classify, and route every statement on its own merit.",
+        href: "/#strategies",
+        icon: <IconRouting />,
+      },
+      {
+        title: "Dual execution",
+        description: "Plan-split between DuckDB and Snowflake via Arrow IPC.",
+        href: "/blog/hybrid-plans-for-declared-remote-tables",
+        icon: <IconSplit />,
+      },
+      {
+        title: "Parity sampler",
+        description: "Dual-run a fraction of routed queries; alert on drift.",
+        href: "/blog/per-query-routing-in-detail",
+        icon: <IconShield />,
+      },
+      {
+        title: "Policy modes",
+        description: "Passthrough, allowlist, enforce — with hot-reload.",
+        href: "/blog/policy-modes",
+        icon: <IconLock />,
+      },
+    ],
   },
   {
-    title: "Dual execution",
-    description: "Plan-split between DuckDB and Snowflake via Arrow IPC.",
-    href: "/blog/hybrid-plans-for-declared-remote-tables",
-    icon: <IconSplit />,
-  },
-  {
-    title: "Cost attribution",
-    description: "See which workloads route off, and what they would have cost.",
-    href: "/#benefits",
-    icon: <IconCoins />,
-  },
-  {
-    title: "Parity sampler",
-    description: "Dual-run a fraction of routed queries; alert on drift.",
-    href: "/blog/per-query-routing-in-detail",
-    icon: <IconShield />,
-  },
-  {
-    title: "Policy modes",
-    description: "Passthrough, allowlist, enforce — with hot-reload.",
-    href: "/blog/policy-modes",
-    icon: <IconLock />,
-  },
-  {
-    title: "Observability",
-    description: "Routing decisions in /metrics, logs, and trace spans.",
-    href: "/#features",
-    icon: <IconChart />,
+    name: "Warehouse routing",
+    comingSoon: true,
+    items: [
+      {
+        title: "Right-sizing",
+        description: "XSMALL for tiny filters, LARGE for nightly aggregates.",
+        href: "/#benefits",
+        icon: <IconChart />,
+        comingSoon: true,
+      },
+      {
+        title: "Warm-warehouse routing",
+        description: "Land on warehouses that are already running.",
+        href: "/#benefits",
+        icon: <IconRouting />,
+        comingSoon: true,
+      },
+      {
+        title: "Per-statement override",
+        description: "Each statement gets the warehouse it actually needs.",
+        href: "/#benefits",
+        icon: <IconSplit />,
+        comingSoon: true,
+      },
+      {
+        title: "Cost attribution",
+        description: "See which workloads route off, and what they would have cost.",
+        href: "/#benefits",
+        icon: <IconCoins />,
+      },
+    ],
   },
 ];
 
@@ -204,14 +237,16 @@ export function Nav() {
           </ul>
 
           <div className="ml-auto flex items-center gap-2">
-            <Link
-              href="/contact-us"
+            <a
+              href="https://github.com/citguru/melt"
+              target="_blank"
+              rel="noreferrer"
               onClick={() => setMenu(null)}
               className="hidden sm:inline-flex items-center gap-2 rounded-full bg-ink text-white px-4 py-2 text-sm font-medium hover:bg-ink-2 transition-colors"
             >
               Try Melt free
               <Arrow />
-            </Link>
+            </a>
             <button
               type="button"
               aria-label="Open menu"
@@ -236,27 +271,45 @@ export function Nav() {
             className="hidden md:block absolute inset-x-0 top-full pt-2.5 animate-fade-up"
           >
             <div className="rounded-3xl bg-white border border-line soft-shadow-lg p-3">
-              <div className="grid grid-cols-3 gap-1">
-                {featureItems.map((item) => (
-                  <Link
-                    key={item.title}
-                    href={item.href}
-                    role="menuitem"
-                    onClick={() => setMenu(null)}
-                    className="group flex items-start gap-3 p-3 rounded-2xl hover:bg-bg-2 transition-colors"
-                  >
-                    <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-2 text-ink group-hover:bg-ink group-hover:text-white transition-colors">
-                      {item.icon}
-                    </span>
-                    <span className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-sm font-medium text-ink">
-                        {item.title}
+              <div className="grid grid-cols-2 gap-1">
+                {featureGroups.map((group) => (
+                  <div key={group.name} className="flex flex-col">
+                    <div className="flex items-center justify-between px-3 pt-2 pb-1.5">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-2/70">
+                        {group.name}
                       </span>
-                      <span className="text-xs text-muted leading-snug">
-                        {item.description}
-                      </span>
-                    </span>
-                  </Link>
+                      {group.comingSoon ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.14em] rounded-full px-2 py-0.5 bg-orange-100 text-orange-700 border border-orange-200">
+                          Coming soon
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {group.items.map((item) => (
+                        <Link
+                          key={item.title}
+                          href={item.href}
+                          role="menuitem"
+                          onClick={() => setMenu(null)}
+                          className={`group flex items-start gap-3 p-3 rounded-2xl hover:bg-bg-2 transition-colors ${
+                            item.comingSoon ? "opacity-60" : ""
+                          }`}
+                        >
+                          <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-2 text-ink group-hover:bg-ink group-hover:text-white transition-colors">
+                            {item.icon}
+                          </span>
+                          <span className="flex flex-col gap-0.5 min-w-0">
+                            <span className="text-sm font-medium text-ink">
+                              {item.title}
+                            </span>
+                            <span className="text-xs text-muted leading-snug">
+                              {item.description}
+                            </span>
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
 
@@ -265,7 +318,7 @@ export function Nav() {
                   Looking for the full feature breakdown?
                 </span>
                 <Link
-                  href="/#features"
+                  href="/#strategies"
                   onClick={() => setMenu(null)}
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:text-ink-2"
                 >
@@ -301,39 +354,55 @@ export function Nav() {
                       <Chevron open={mobileFeaturesOpen} />
                     </button>
                     {mobileFeaturesOpen ? (
-                      <ul className="flex flex-col gap-0.5 pt-1 pb-2 pl-2">
-                        {featureItems.map((item) => (
-                          <li key={item.title}>
-                            <Link
-                              href={item.href}
-                              onClick={closeAll}
-                              className="flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-bg-2"
-                            >
-                              <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-ink">
-                                {item.icon}
+                      <div className="flex flex-col pt-1 pb-2 pl-2">
+                        {featureGroups.map((group) => (
+                          <div key={group.name} className="flex flex-col">
+                            <div className="flex items-center justify-between px-3 pt-2 pb-1">
+                              <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-ink-2/70">
+                                {group.name}
                               </span>
-                              <span className="flex flex-col gap-0.5 min-w-0">
-                                <span className="text-sm font-medium text-ink">
-                                  {item.title}
+                              {group.comingSoon ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.14em] rounded-full px-2 py-0.5 bg-orange-100 text-orange-700 border border-orange-200">
+                                  Coming soon
                                 </span>
-                                <span className="text-xs text-muted leading-snug">
-                                  {item.description}
-                                </span>
-                              </span>
-                            </Link>
-                          </li>
+                              ) : null}
+                            </div>
+                            <ul className="flex flex-col gap-0.5">
+                              {group.items.map((item) => (
+                                <li key={item.title}>
+                                  <Link
+                                    href={item.href}
+                                    onClick={closeAll}
+                                    className={`flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-bg-2 ${
+                                      item.comingSoon ? "opacity-60" : ""
+                                    }`}
+                                  >
+                                    <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-ink">
+                                      {item.icon}
+                                    </span>
+                                    <span className="flex flex-col gap-0.5 min-w-0">
+                                      <span className="text-sm font-medium text-ink">
+                                        {item.title}
+                                      </span>
+                                      <span className="text-xs text-muted leading-snug">
+                                        {item.description}
+                                      </span>
+                                    </span>
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ))}
-                        <li>
-                          <Link
-                            href="/#features"
-                            onClick={closeAll}
-                            className="flex items-center justify-between mx-1 mt-1 px-3 py-2.5 rounded-xl bg-bg-2 text-sm font-medium text-ink"
-                          >
-                            See all features
-                            <Arrow />
-                          </Link>
-                        </li>
-                      </ul>
+                        <Link
+                          href="/#strategies"
+                          onClick={closeAll}
+                          className="flex items-center justify-between mx-1 mt-3 px-3 py-2.5 rounded-xl bg-bg-2 text-sm font-medium text-ink"
+                        >
+                          See all features
+                          <Arrow />
+                        </Link>
+                      </div>
                     ) : null}
                   </li>
                 ) : (
@@ -349,14 +418,16 @@ export function Nav() {
                 )
               )}
               <li className="mt-2 px-2">
-                <Link
-                  href="/contact-us"
+                <a
+                  href="https://github.com/citguru/melt"
+                  target="_blank"
+                  rel="noreferrer"
                   onClick={closeAll}
                   className="flex items-center justify-center gap-2 rounded-full bg-ink text-white px-4 py-3 text-sm font-medium"
                 >
                   Try Melt free
                   <Arrow />
-                </Link>
+                </a>
               </li>
             </ul>
           </div>

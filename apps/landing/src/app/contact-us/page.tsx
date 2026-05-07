@@ -34,19 +34,15 @@ export default function ContactPage() {
               <div className="mt-4 flex flex-col gap-3 text-sm">
                 <ContactRow
                   label="Email"
-                  value="hello@melt.dev"
-                  href="mailto:hello@melt.dev"
+                  value="hello@meltcomputing.com"
+                  href="mailto:hello@meltcomputing.com"
                 />
                 <ContactRow
                   label="GitHub"
-                  value="github.com/melt"
-                  href="https://github.com/"
+                  value="github.com/citguru/melt"
+                  href="https://github.com/citguru/melt"
                 />
-                <ContactRow
-                  label="Discord"
-                  value="discord.gg/melt"
-                  href="https://discord.com/"
-                />
+                {/* Discord row hidden until we have a real invite link */}
               </div>
             </div>
 

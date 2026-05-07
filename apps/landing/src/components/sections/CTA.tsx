@@ -16,7 +16,9 @@ export function CTA() {
           Download Melt for free and route your first query in under five
           minutes. No credit card required.
         </p>
-        <PrimaryCTA href="/contact-us">Try Melt free</PrimaryCTA>
+        <PrimaryCTA href="https://github.com/citguru/melt" external>
+          Try Melt free
+        </PrimaryCTA>
       </div>
     </section>
   );

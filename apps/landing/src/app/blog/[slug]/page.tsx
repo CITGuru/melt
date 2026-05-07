@@ -19,7 +19,40 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = getPost(slug);
   if (!post) return { title: "Post not found" };
-  return { title: `${post.title} — Melt`, description: post.excerpt };
+
+  // If the post has a featuredImage, use it for the social card.
+  // Otherwise, omit images and inherit the site-wide /opengraph-image.
+  const ogImages = post.featuredImage
+    ? [
+        {
+          url: post.featuredImage,
+          width: 1200,
+          height: 630,
+          alt: post.title,
+        },
+      ]
+    : undefined;
+
+  return {
+    title: post.title,
+    description: post.excerpt,
+    alternates: { canonical: `/blog/${post.slug}` },
+    openGraph: {
+      type: "article",
+      title: post.title,
+      description: post.excerpt,
+      url: `/blog/${post.slug}`,
+      publishedTime: new Date(post.publishedAt).toISOString(),
+      authors: [post.author],
+      ...(ogImages ? { images: ogImages } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description: post.excerpt,
+      ...(post.featuredImage ? { images: [post.featuredImage] } : {}),
+    },
+  };
 }
 
 export default async function BlogPostPage({
@@ -39,7 +72,7 @@ export default async function BlogPostPage({
       <main className="flex flex-col w-full">
         <article>
           <header className="relative pt-36 md:pt-44 pb-12 bg-sky-soft">
-            <div className="mx-auto max-w-3xl px-6 flex flex-col gap-5">
+            <div className="mx-auto max-w-4xl px-6 flex flex-col gap-5">
               <Link
                 href="/blog"
                 className="inline-flex items-center gap-2 self-start text-sm text-ink-2 hover:text-ink"
@@ -72,7 +105,7 @@ export default async function BlogPostPage({
             </div>
           </header>
 
-          <div className="mx-auto max-w-4xl px-6 -mt-2">
+          <div className="mx-auto max-w-5xl px-6 -mt-2">
             <BlogCover slug={post.slug} variant="featured" />
           </div>
 

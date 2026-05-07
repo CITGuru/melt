@@ -16,7 +16,9 @@ export function BlogTeasers() {
         <div className="mt-14 grid lg:grid-cols-12 gap-5">
           <Link
             href={`/blog/${featured.slug}`}
-            className="lg:col-span-7 bg-white rounded-3xl border border-line soft-shadow p-6 md:p-8 flex flex-col gap-6 group hover:soft-shadow-lg transition-shadow"
+            className={`${
+              more.length > 0 ? "lg:col-span-7" : "lg:col-span-12"
+            } bg-white rounded-3xl border border-line soft-shadow p-6 md:p-8 flex flex-col gap-6 group hover:soft-shadow-lg transition-shadow`}
           >
             <BlogCover slug={featured.slug} variant="featured" />
             <div className="flex flex-col gap-3">
@@ -42,33 +44,35 @@ export function BlogTeasers() {
             </div>
           </Link>
 
-          <div className="lg:col-span-5 flex flex-col gap-5">
-            {more.map((p) => (
+          {more.length > 0 ? (
+            <div className="lg:col-span-5 flex flex-col gap-5">
+              {more.map((p) => (
+                <Link
+                  key={p.slug}
+                  href={`/blog/${p.slug}`}
+                  className="bg-white rounded-3xl border border-line soft-shadow p-5 flex items-center gap-4 group hover:soft-shadow-lg transition-shadow"
+                >
+                  <BlogCover slug={p.slug} variant="thumb" />
+                  <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-accent">
+                      {p.category}
+                    </span>
+                    <h4 className="text-base font-semibold tracking-tight leading-snug truncate">
+                      {p.title}
+                    </h4>
+                    <span className="text-xs text-muted">{p.readTime}</span>
+                  </div>
+                  <ArrowRight />
+                </Link>
+              ))}
               <Link
-                key={p.slug}
-                href={`/blog/${p.slug}`}
-                className="bg-white rounded-3xl border border-line soft-shadow p-5 flex items-center gap-4 group hover:soft-shadow-lg transition-shadow"
+                href="/blog"
+                className="text-sm font-medium text-ink-2 hover:text-ink mt-2 inline-flex items-center gap-2 self-end"
               >
-                <BlogCover slug={p.slug} variant="thumb" />
-                <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-accent">
-                    {p.category}
-                  </span>
-                  <h4 className="text-base font-semibold tracking-tight leading-snug truncate">
-                    {p.title}
-                  </h4>
-                  <span className="text-xs text-muted">{p.readTime}</span>
-                </div>
-                <ArrowRight />
+                See all articles <ArrowRight />
               </Link>
-            ))}
-            <Link
-              href="/blog"
-              className="text-sm font-medium text-ink-2 hover:text-ink mt-2 inline-flex items-center gap-2 self-end"
-            >
-              See all articles <ArrowRight />
-            </Link>
-          </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

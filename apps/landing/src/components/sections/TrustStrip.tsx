@@ -12,8 +12,8 @@ const tools = [
   "Rust connector",
 ];
 
-export function TrustStrip({ label }: { label?: string }) {
-  const items = [...tools, ...tools];
+export function TrustStrip({ label, items }: { label?: string, items?: string[] }) {
+  const itemList = items ? [...items, ...items] : [...tools, ...tools];
   return (
     <section className="relative py-10 bg-bg-2 border-y border-line">
       {label ? (
@@ -31,7 +31,7 @@ export function TrustStrip({ label }: { label?: string }) {
         }}
       >
         <div className="marquee-track flex w-max gap-12 px-6">
-          {items.map((t, i) => (
+          {itemList.map((t, i) => (
             <span
               key={i}
               className="text-xl md:text-2xl font-semibold tracking-tight text-ink/40 whitespace-nowrap"

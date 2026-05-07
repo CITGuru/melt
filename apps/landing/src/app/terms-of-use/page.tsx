@@ -10,7 +10,7 @@ export default function TermsPage() {
   return (
     <LegalLayout eyebrow="legal" title="Terms of use" updated="May 1, 2026">
       <p>
-        These terms govern your use of melt.dev and the Melt cloud service.
+        These terms govern your use of meltcomputing.com and the Melt cloud service.
         The Melt open-source proxy and sync are licensed separately under the
         Apache License 2.0; nothing in this document overrides that license.
       </p>
@@ -28,7 +28,7 @@ export default function TermsPage() {
       <p>
         You are responsible for keeping your account credentials secure and
         for all activity under your account. Notify us immediately at{" "}
-        <a href="mailto:security@melt.dev">security@melt.dev</a> if you
+        <a href="mailto:security@meltcomputing.com">security@meltcomputing.com</a> if you
         suspect unauthorised access.
       </p>
 
@@ -81,7 +81,7 @@ export default function TermsPage() {
       <h2>Contact</h2>
       <p>
         Questions:{" "}
-        <a href="mailto:legal@melt.dev">legal@melt.dev</a>.
+        <a href="mailto:legal@meltcomputing.com">legal@meltcomputing.com</a>.
       </p>
     </LegalLayout>
   );

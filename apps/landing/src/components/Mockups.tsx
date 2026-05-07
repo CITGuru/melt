@@ -72,7 +72,7 @@ export function LaptopMockup() {
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-            <span className="ml-4 text-[11px] font-mono text-muted">app.melt.dev / routes</span>
+            <span className="ml-4 text-[11px] font-mono text-muted">app.meltcomputing.com / routes</span>
           </div>
           <div className="grid grid-cols-[180px_1fr] min-h-[360px]">
             <aside className="border-r border-line bg-bg-2 p-3 flex flex-col gap-1.5 text-[12px]">

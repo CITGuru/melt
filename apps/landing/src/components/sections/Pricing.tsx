@@ -31,7 +31,7 @@ const tiers: Tier[] = [
       "Community support",
     ],
     cta: "Try Melt free",
-    ctaHref: "/contact-us",
+    ctaHref: "https://github.com/citguru/melt",
   },
   {
     name: "Melt Premium",
@@ -161,17 +161,33 @@ export function Pricing() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  href={t.ctaHref}
-                  className={`mt-auto inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-medium transition-colors ${
-                    t.highlighted
-                      ? "bg-white text-ink hover:bg-bg-2"
-                      : "bg-ink text-white hover:bg-ink-2"
-                  }`}
-                >
-                  {t.cta}
-                  <ArrowRight />
-                </Link>
+                {t.ctaHref.startsWith("http") ? (
+                  <a
+                    href={t.ctaHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`mt-auto inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-medium transition-colors ${
+                      t.highlighted
+                        ? "bg-white text-ink hover:bg-bg-2"
+                        : "bg-ink text-white hover:bg-ink-2"
+                    }`}
+                  >
+                    {t.cta}
+                    <ArrowRight />
+                  </a>
+                ) : (
+                  <Link
+                    href={t.ctaHref}
+                    className={`mt-auto inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-medium transition-colors ${
+                      t.highlighted
+                        ? "bg-white text-ink hover:bg-bg-2"
+                        : "bg-ink text-white hover:bg-ink-2"
+                    }`}
+                  >
+                    {t.cta}
+                    <ArrowRight />
+                  </Link>
+                )}
               </div>
             );
           })}
