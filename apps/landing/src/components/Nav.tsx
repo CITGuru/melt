@@ -39,7 +39,7 @@ const featureGroups: FeatureGroup[] = [
       {
         title: "Per-query routing",
         description: "Parse, classify, and route every statement on its own merit.",
-        href: "/#strategies",
+        href: "/#features",
         icon: <IconRouting />,
       },
       {
@@ -318,7 +318,7 @@ export function Nav() {
                   Looking for the full feature breakdown?
                 </span>
                 <Link
-                  href="/#strategies"
+                  href="/#features"
                   onClick={() => setMenu(null)}
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:text-ink-2"
                 >
@@ -395,7 +395,7 @@ export function Nav() {
                           </div>
                         ))}
                         <Link
-                          href="/#strategies"
+                          href="/#features"
                           onClick={closeAll}
                           className="flex items-center justify-between mx-1 mt-3 px-3 py-2.5 rounded-xl bg-bg-2 text-sm font-medium text-ink"
                         >

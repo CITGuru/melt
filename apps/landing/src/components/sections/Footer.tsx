@@ -7,7 +7,7 @@ const cols: { heading: string; links: { label: string; href: string }[] }[] = [
     links: [
       { label: "Home", href: "/" },
       { label: "About", href: "/about" },
-      { label: "Features", href: "/#strategies" },
+      { label: "Features", href: "/#features" },
       { label: "Pricing", href: "/#pricing" },
     ],
   },

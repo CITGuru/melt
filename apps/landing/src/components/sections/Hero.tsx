@@ -35,7 +35,7 @@ export function Hero() {
 
         <div className="flex flex-col sm:flex-row items-center gap-3 mt-1">
           <PrimaryCTA href="/contact-us">Book a demo</PrimaryCTA>
-          <GhostCTA href="/#strategies">See how it works</GhostCTA>
+          <GhostCTA href="/#features">See how it works</GhostCTA>
         </div>
 
         <p className="text-xs text-muted-2 mt-3 tracking-wide">

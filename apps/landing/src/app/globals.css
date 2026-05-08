@@ -48,6 +48,13 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  /* Leave room for the fixed pill nav (top-4 + ~56px tall) when the browser
+     jumps to in-page anchors like /#features, /#pricing, etc. */
+  scroll-padding-top: 96px;
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   background: var(--bg);
