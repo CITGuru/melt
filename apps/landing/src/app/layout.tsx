@@ -12,10 +12,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// Long, SEO-friendly title used in <title> + browser tab.
+// SERP-friendly title used in <title> + browser tab. Kept under
+// 60 chars so Google doesn't truncate it in search results.
 const DOCUMENT_TITLE =
-  "Melt — Automatically route queries to the cheapest engine and right compute in real time to cut your Snowflake bill";
-// Short, punchy title used in OG / Twitter cards so social previews don't truncate.
+  "Melt — Cut your Snowflake bill, change one connection string";
+// Used in OG / Twitter cards. No "Melt — " prefix because the
+// siteName field on the OG card already shows the brand separately.
 const SOCIAL_TITLE =
   "Cut your Snowflake bill, change one connection string";
 const SHARED_DESCRIPTION =
