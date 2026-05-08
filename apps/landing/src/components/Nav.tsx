@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
 import { useEffect, useRef, useState } from "react";
+import { FeatureIcon } from "./FeatureIcons";
+import {
+  featureCategoryOrder,
+  featuresByCategory,
+} from "@/lib/features";
 
 type LinkItem = {
   label: string;
@@ -11,90 +16,11 @@ type LinkItem = {
 };
 
 const links: LinkItem[] = [
-  { label: "Features", menu: "features" },
+  // { label: "Features", menu: "features" },  // hidden for now — un-comment to restore the dropdown
   { label: "Benefits", href: "/#benefits" },
   { label: "Pricing", href: "/#pricing" },
   { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact-us" },
-];
-
-type FeatureItem = {
-  title: string;
-  description: string;
-  href: string;
-  icon: React.ReactNode;
-  comingSoon?: boolean;
-};
-
-type FeatureGroup = {
-  name: string;
-  comingSoon?: boolean;
-  items: FeatureItem[];
-};
-
-const featureGroups: FeatureGroup[] = [
-  {
-    name: "Query routing",
-    items: [
-      {
-        title: "Per-query routing",
-        description: "Parse, classify, and route every statement on its own merit.",
-        href: "/#features",
-        icon: <IconRouting />,
-      },
-      {
-        title: "Dual execution",
-        description: "Plan-split between DuckDB and Snowflake via Arrow IPC.",
-        href: "/blog/hybrid-plans-for-declared-remote-tables",
-        icon: <IconSplit />,
-      },
-      {
-        title: "Parity sampler",
-        description: "Dual-run a fraction of routed queries; alert on drift.",
-        href: "/blog/per-query-routing-in-detail",
-        icon: <IconShield />,
-      },
-      {
-        title: "Policy modes",
-        description: "Passthrough, allowlist, enforce — with hot-reload.",
-        href: "/blog/policy-modes",
-        icon: <IconLock />,
-      },
-    ],
-  },
-  {
-    name: "Warehouse routing",
-    comingSoon: true,
-    items: [
-      {
-        title: "Right-sizing",
-        description: "XSMALL for tiny filters, LARGE for nightly aggregates.",
-        href: "/#benefits",
-        icon: <IconChart />,
-        comingSoon: true,
-      },
-      {
-        title: "Warm-warehouse routing",
-        description: "Land on warehouses that are already running.",
-        href: "/#benefits",
-        icon: <IconRouting />,
-        comingSoon: true,
-      },
-      {
-        title: "Per-statement override",
-        description: "Each statement gets the warehouse it actually needs.",
-        href: "/#benefits",
-        icon: <IconSplit />,
-        comingSoon: true,
-      },
-      {
-        title: "Cost attribution",
-        description: "See which workloads route off, and what they would have cost.",
-        href: "/#benefits",
-        icon: <IconCoins />,
-      },
-    ],
-  },
 ];
 
 export function Nav() {
@@ -131,8 +57,6 @@ export function Nav() {
   useEffect(() => () => clearCloseTimer(), []);
 
   // Only lock body scroll for the mobile full-screen menu.
-  // The desktop dropdown lives inside the fixed nav, so the page can stay scrollable.
-  // When locking, compensate for the now-hidden scrollbar so nothing shifts.
   useEffect(() => {
     if (!mobileOpen) {
       document.body.style.overflow = "";
@@ -151,7 +75,6 @@ export function Nav() {
     };
   }, [mobileOpen]);
 
-  // Escape closes everything
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") closeAll();
@@ -160,7 +83,6 @@ export function Nav() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Click outside the nav closes the desktop dropdown
   useEffect(() => {
     if (!menu) return;
     function onClick(e: MouseEvent) {
@@ -173,7 +95,6 @@ export function Nav() {
 
   return (
     <header className="fixed top-4 inset-x-0 z-50 flex justify-center px-4">
-      {/* Backdrop overlay — shared by desktop dropdown and mobile menu */}
       {(menu || mobileOpen) ? (
         <div
           className="fixed inset-0 -z-10 bg-ink/30 backdrop-blur-[2px] animate-fade-in"
@@ -182,10 +103,7 @@ export function Nav() {
         />
       ) : null}
 
-      <div
-        ref={navRef}
-        className="relative w-full max-w-5xl"
-      >
+      <div ref={navRef} className="relative w-full max-w-5xl">
         <nav
           aria-label="Primary"
           className="flex items-center gap-2 rounded-full bg-white/70 backdrop-blur-xl border border-line ring-1 ring-white/40 px-3 py-2 soft-shadow"
@@ -261,7 +179,7 @@ export function Nav() {
           </div>
         </nav>
 
-        {/* Desktop Features dropdown */}
+        {/* Desktop Features dropdown — 3 columns × 2 items */}
         {menu === "features" ? (
           <div
             role="menu"
@@ -271,39 +189,33 @@ export function Nav() {
             className="hidden md:block absolute inset-x-0 top-full pt-2.5 animate-fade-up"
           >
             <div className="rounded-3xl bg-white border border-line soft-shadow-lg p-3">
-              <div className="grid grid-cols-2 gap-1">
-                {featureGroups.map((group) => (
-                  <div key={group.name} className="flex flex-col">
-                    <div className="flex items-center justify-between px-3 pt-2 pb-1.5">
-                      <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-2/70">
-                        {group.name}
-                      </span>
-                      {group.comingSoon ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.14em] rounded-full px-2 py-0.5 bg-orange-100 text-orange-700 border border-orange-200">
-                          Coming soon
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      {group.items.map((item) => (
+              <div className="grid grid-cols-3 gap-1">
+                {featureCategoryOrder.map((category) => (
+                  <div key={category} className="flex flex-col">
+                    <span className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-ink-2/60">
+                      {category}
+                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      {featuresByCategory[category].map((item) => (
                         <Link
-                          key={item.title}
-                          href={item.href}
+                          key={item.slug}
+                          href={`/features/${item.slug}`}
                           role="menuitem"
                           onClick={() => setMenu(null)}
-                          className={`group flex items-start gap-3 p-3 rounded-2xl hover:bg-bg-2 transition-colors ${
-                            item.comingSoon ? "opacity-60" : ""
-                          }`}
+                          className="group flex items-start gap-3 p-3 rounded-2xl hover:bg-bg-2 transition-colors"
                         >
                           <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-2 text-ink group-hover:bg-ink group-hover:text-white transition-colors">
-                            {item.icon}
+                            <FeatureIcon name={item.iconName} />
                           </span>
                           <span className="flex flex-col gap-0.5 min-w-0">
-                            <span className="text-sm font-medium text-ink">
-                              {item.title}
+                            <span className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-ink">
+                                {item.title}
+                              </span>
+                              {item.status === "alpha" ? <AlphaPill /> : null}
                             </span>
                             <span className="text-xs text-muted leading-snug">
-                              {item.description}
+                              {item.shortDescription}
                             </span>
                           </span>
                         </Link>
@@ -355,37 +267,33 @@ export function Nav() {
                     </button>
                     {mobileFeaturesOpen ? (
                       <div className="flex flex-col pt-1 pb-2 pl-2">
-                        {featureGroups.map((group) => (
-                          <div key={group.name} className="flex flex-col">
-                            <div className="flex items-center justify-between px-3 pt-2 pb-1">
-                              <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-ink-2/70">
-                                {group.name}
-                              </span>
-                              {group.comingSoon ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.14em] rounded-full px-2 py-0.5 bg-orange-100 text-orange-700 border border-orange-200">
-                                  Coming soon
-                                </span>
-                              ) : null}
-                            </div>
+                        {featureCategoryOrder.map((category) => (
+                          <div key={category} className="flex flex-col">
+                            <span className="px-3 pt-3 pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-ink-2/60">
+                              {category}
+                            </span>
                             <ul className="flex flex-col gap-0.5">
-                              {group.items.map((item) => (
-                                <li key={item.title}>
+                              {featuresByCategory[category].map((item) => (
+                                <li key={item.slug}>
                                   <Link
-                                    href={item.href}
+                                    href={`/features/${item.slug}`}
                                     onClick={closeAll}
-                                    className={`flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-bg-2 ${
-                                      item.comingSoon ? "opacity-60" : ""
-                                    }`}
+                                    className="flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-bg-2"
                                   >
                                     <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-ink">
-                                      {item.icon}
+                                      <FeatureIcon name={item.iconName} />
                                     </span>
                                     <span className="flex flex-col gap-0.5 min-w-0">
-                                      <span className="text-sm font-medium text-ink">
-                                        {item.title}
+                                      <span className="flex items-center gap-2">
+                                        <span className="text-sm font-medium text-ink">
+                                          {item.title}
+                                        </span>
+                                        {item.status === "alpha" ? (
+                                          <AlphaPill />
+                                        ) : null}
                                       </span>
                                       <span className="text-xs text-muted leading-snug">
-                                        {item.description}
+                                        {item.shortDescription}
                                       </span>
                                     </span>
                                   </Link>
@@ -437,6 +345,14 @@ export function Nav() {
   );
 }
 
+function AlphaPill() {
+  return (
+    <span className="inline-flex items-center text-[9px] font-medium uppercase tracking-[0.16em] rounded-full bg-accent/10 text-accent border border-accent/30 px-1.5 py-0.5">
+      Alpha
+    </span>
+  );
+}
+
 function Arrow() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -468,58 +384,6 @@ function Chevron({ open }: { open: boolean }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function IconRouting() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 6h6l4 12h6M4 18h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="4" cy="6" r="1.6" fill="currentColor" />
-      <circle cx="4" cy="18" r="1.6" fill="currentColor" />
-      <circle cx="20" cy="18" r="1.6" fill="currentColor" />
-    </svg>
-  );
-}
-function IconSplit() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M6 4v6a4 4 0 0 0 4 4h4a4 4 0 0 1 4 4v2M18 4v6a4 4 0 0 1-4 4h-4a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconCoins() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <ellipse cx="9" cy="7" rx="5" ry="2.5" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M4 7v5c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5V7" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M10 13v4c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5v-5" stroke="currentColor" strokeWidth="1.7" />
-      <ellipse cx="15" cy="12" rx="5" ry="2.5" stroke="currentColor" strokeWidth="1.7" />
-    </svg>
-  );
-}
-function IconShield() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 3 4 6v6c0 4.5 3.4 7.8 8 9 4.6-1.2 8-4.5 8-9V6l-8-3Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-      <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconLock() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconChart() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 19h16" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M7 16V9M12 16V5M17 16v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   );
 }

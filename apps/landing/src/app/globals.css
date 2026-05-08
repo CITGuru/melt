@@ -48,12 +48,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html {
-  /* Leave room for the fixed pill nav (top-4 + ~56px tall) when the browser
-     jumps to in-page anchors like /#features, /#pricing, etc. */
-  scroll-padding-top: 96px;
-  scroll-behavior: smooth;
-}
+
 
 html,
 body {
@@ -189,7 +184,7 @@ body {
 .prose-melt li { margin-bottom: 0.5em; list-style: disc; }
 .prose-melt a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .prose-melt code {
-  background: #eef2f8;
+  background: #c6c4de;
   padding: 0.15em 0.4em;
   border-radius: 6px;
   font-size: 0.9em;
