@@ -23,7 +23,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: `${SITE}/blog`,
       lastModified: now,
-      changeFrequency: "weekly",
+      changeFrequency: "always",
       priority: 0.8,
     },
     {
@@ -51,16 +51,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     return {
       url: `${SITE}/blog/${p.slug}`,
       lastModified: Number.isNaN(parsed.getTime()) ? now : parsed,
-      changeFrequency: "monthly",
-      priority: 0.7,
+      changeFrequency: "always",
+      priority: 0.8,
     };
   });
 
   const featureRoutes: MetadataRoute.Sitemap = features.map((f) => ({
     url: `${SITE}/features/${f.slug}`,
     lastModified: now,
-    changeFrequency: "monthly",
-    priority: 0.6,
+    changeFrequency: "always",
+    priority: 0.8,
   }));
 
   return [...staticRoutes, ...blogRoutes, ...featureRoutes];
