@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { FeaturePageLayout } from "@/components/FeaturePageLayout";
 import { features, featuresBySlug } from "@/lib/features";
+import { pageSeo } from "@/lib/seo";
 import type { Metadata } from "next";
 
 export function generateStaticParams() {
@@ -18,6 +19,11 @@ export async function generateMetadata({
   return {
     title: feature.metaTitle,
     description: feature.metaDescription,
+    ...pageSeo({
+      path: `/features/${feature.slug}`,
+      description: feature.metaDescription,
+      socialTitle: feature.title,
+    }),
   };
 }
 

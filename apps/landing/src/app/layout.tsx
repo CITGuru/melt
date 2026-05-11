@@ -24,7 +24,7 @@ const SHARED_DESCRIPTION =
   "All-in-one routing layer for your data warehouse. Drop melt in front of Snowflake and route eligible reads to a DuckDB-backed lakehouse without touching a query.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://meltcomputing.com"),
+  metadataBase: new URL("https://www.meltcomputing.com"),
   title: {
     default: DOCUMENT_TITLE,
     template: "%s — Melt",

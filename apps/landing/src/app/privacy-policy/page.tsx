@@ -1,9 +1,18 @@
 import { LegalLayout } from "@/components/LegalLayout";
 import type { Metadata } from "next";
+import { pageSeo } from "@/lib/seo";
+
+const PRIVACY_DESCRIPTION =
+  "How Melt handles personal information and customer data.";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Melt",
-  description: "How Melt handles personal information and customer data.",
+  description: PRIVACY_DESCRIPTION,
+  ...pageSeo({
+    path: "/privacy-policy",
+    description: PRIVACY_DESCRIPTION,
+    socialTitle: "Privacy policy",
+  }),
 };
 
 export default function PrivacyPage() {

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        { "type": "host", "value": "meltcomputing.com" }
+      ],
+      "destination": "https://www.meltcomputing.com/:path*",
+      "permanent": true
+    }
+  ]
+}

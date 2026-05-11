@@ -5,10 +5,19 @@ import { posts } from "@/lib/posts";
 import { BlogCover } from "@/components/sections/BlogTeasers";
 import { ArrowRight } from "@/components/UI";
 import type { Metadata } from "next";
+import { pageSeo } from "@/lib/seo";
+
+const BLOG_DESCRIPTION =
+  "Routing deep-dives, runbooks, and field notes from the team building Melt.";
 
 export const metadata: Metadata = {
   title: "Blog — Melt",
-  description: "Routing deep-dives, runbooks, and field notes from the team building Melt.",
+  description: BLOG_DESCRIPTION,
+  ...pageSeo({
+    path: "/blog",
+    description: BLOG_DESCRIPTION,
+    socialTitle: "Melt blog",
+  }),
 };
 
 export default function BlogIndex() {
