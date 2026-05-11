@@ -10,7 +10,9 @@ import { Pricing } from "@/components/sections/Pricing";
 import { BlogTeasers } from "@/components/sections/BlogTeasers";
 import { Community } from "@/components/sections/Community";
 import { CTA } from "@/components/sections/CTA";
+import { FAQ } from "@/components/sections/FAQ";
 import { Footer } from "@/components/sections/Footer";
+import { homeFaq } from "@/lib/faq";
 
 export default function Home() {
   return (
@@ -29,6 +31,7 @@ export default function Home() {
         <TrustStrip label="Supported integrations and drivers" />
         <BlogTeasers />
         {/* <Community /> — hidden until we have real social handles + counts */}
+        <FAQ block={homeFaq} />
         <CTA />
       </main>
       <Footer />

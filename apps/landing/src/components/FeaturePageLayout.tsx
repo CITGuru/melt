@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Nav } from "./Nav";
+import { FAQ } from "./sections/FAQ";
 import { Footer } from "./sections/Footer";
 import { ArrowRight, PrimaryCTA, GhostCTA } from "./UI";
 import { FeatureIcon } from "./FeatureIcons";
@@ -8,12 +9,14 @@ import {
   type NamedItem,
   featuresByCategory,
 } from "@/lib/features";
+import { featureFaqBySlug } from "@/lib/faq";
 
 export function FeaturePageLayout({ feature }: { feature: Feature }) {
   const isAlpha = feature.status === "alpha";
   const siblings = featuresByCategory[feature.category].filter(
     (f) => f.slug !== feature.slug,
   );
+  const faq = featureFaqBySlug[feature.slug];
 
   return (
     <>
@@ -26,6 +29,8 @@ export function FeaturePageLayout({ feature }: { feature: Feature }) {
         {siblings.length > 0 ? (
           <SiblingSection feature={feature} siblings={siblings} />
         ) : null}
+
+        {faq ? <FAQ block={faq} /> : null}
 
         <FinalCTA feature={feature} isAlpha={isAlpha} />
       </main>
