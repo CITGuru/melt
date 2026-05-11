@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { posts } from "@/lib/posts";
 import { features } from "@/lib/features";
 
-const SITE = "https://meltcomputing.com";
+const SITE = "https://www.meltcomputing.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();

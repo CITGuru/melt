@@ -3,11 +3,19 @@ import { Nav } from "@/components/Nav";
 import { Footer } from "@/components/sections/Footer";
 import { Cloud } from "@/components/Clouds";
 import { PrimaryCTA, GhostCTA, SectionHeader } from "@/components/UI";
+import { pageSeo } from "@/lib/seo";
+
+const ABOUT_DESCRIPTION =
+  "Why melt exists, what we believe, and who's building it.";
 
 export const metadata: Metadata = {
   title: "About — Melt",
-  description:
-    "Why melt exists, what we believe, and who's building it.",
+  description: ABOUT_DESCRIPTION,
+  ...pageSeo({
+    path: "/about",
+    description: ABOUT_DESCRIPTION,
+    socialTitle: "About Melt",
+  }),
 };
 
 export default function AboutPage() {

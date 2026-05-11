@@ -1,9 +1,18 @@
 import { LegalLayout } from "@/components/LegalLayout";
 import type { Metadata } from "next";
+import { pageSeo } from "@/lib/seo";
+
+const TERMS_DESCRIPTION =
+  "The terms governing your use of the Melt website and services.";
 
 export const metadata: Metadata = {
   title: "Terms of Use — Melt",
-  description: "The terms governing your use of the Melt website and services.",
+  description: TERMS_DESCRIPTION,
+  ...pageSeo({
+    path: "/terms-of-use",
+    description: TERMS_DESCRIPTION,
+    socialTitle: "Terms of use",
+  }),
 };
 
 export default function TermsPage() {
