@@ -1,4 +1,3 @@
-import { SectionHeader } from "../UI";
 import type { FaqBlock } from "@/lib/faq";
 
 export function FAQ({ block }: { block: FaqBlock }) {
@@ -27,11 +26,16 @@ export function FAQ({ block }: { block: FaqBlock }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <div className="mx-auto max-w-3xl px-6">
-        <div className="flex flex-col items-center text-center gap-4">
+        <div className="flex flex-col items-center text-center gap-4 max-w-2xl mx-auto">
           <span className="text-xs uppercase tracking-[0.18em] text-muted">
             faq
           </span>
-          <SectionHeader title={<>Frequently asked questions.</>} />
+          <h2
+            id="faq-heading"
+            className="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.04]"
+          >
+            Frequently asked questions.
+          </h2>
         </div>
         <ul className="mt-12 md:mt-16 flex flex-col gap-3 list-none p-0">
           {block.entries.map((e) => (
