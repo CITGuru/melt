@@ -18,7 +18,7 @@ export default function Home() {
       <Nav />
       <main className="flex flex-col w-full">
         <Hero />
-        <TrustStrip label="Trusted by data teams, agents, and analytics studios" items={["Finic", "OpenDuck", "Mielto", "Pawrly", "Finic", "OpenDuck", "PowrLabs", "Pawrly", "Finic", "OpenDuck", "Mielto", "Pawrly"]} />
+        <TrustStrip label="Built by data engineers behind" items={["Finic", "OpenDuck", "Pawrly"]} />
         {/* <DeviceSync /> */}
         <Strategies />
         <Routing />

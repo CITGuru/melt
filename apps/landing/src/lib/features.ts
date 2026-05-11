@@ -55,6 +55,8 @@ export type Feature = {
   /** SEO. */
   metaTitle: string;
   metaDescription: string;
+  /** Optional long-form H1 for the feature page hero. Falls back to `title`. */
+  h1?: string;
 
   // Common to both live and alpha
   architecture?: Architecture;
@@ -79,6 +81,7 @@ export const features: Feature[] = [
   {
     slug: "query-routing",
     title: "Query Routing",
+    h1: "Query Routing — Per-statement Snowflake cost routing to DuckDB",
     category: "Routing",
     status: "live",
     iconName: "routing",
@@ -318,6 +321,7 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
   {
     slug: "dual-execution",
     title: "Dual Execution",
+    h1: "Dual Execution — Hybrid Snowflake + DuckDB query plans, no driver swap",
     category: "Routing",
     status: "live",
     iconName: "split",
@@ -587,6 +591,7 @@ chain = ["heuristic"]                  # static heuristic (default)
   {
     slug: "warehouse-routing",
     title: "Warehouse Routing",
+    h1: "Warehouse Routing — Route Snowflake queries to an already-warm warehouse",
     category: "Warehouse",
     status: "alpha",
     iconName: "loadBalance",
@@ -975,6 +980,7 @@ chain = ["heuristic"]                  # static heuristic (default)
   {
     slug: "materialized-views",
     title: "Materialized Views",
+    h1: "Materialized Views — Cache hot Snowflake queries in your lake, no Enterprise upgrade",
     category: "Views",
     status: "alpha",
     iconName: "stack",
@@ -1199,6 +1205,7 @@ chain = ["heuristic"]                  # static heuristic (default)
   {
     slug: "incremental-views",
     title: "Incremental Views",
+    h1: "Incremental Views — Sub-second Snowflake freshness from CDC, dbt-style",
     category: "Views",
     status: "alpha",
     iconName: "delta",

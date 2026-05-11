@@ -50,7 +50,7 @@ function Hero({ feature, isAlpha }: { feature: Feature; isAlpha: boolean }) {
           {isAlpha ? <AlphaPill /> : null}
         </div>
         <h1 className="text-5xl md:text-6xl lg:text-[72px] font-semibold tracking-tight text-ink leading-[1.04]">
-          {feature.title}
+          {feature.h1 ?? feature.title}
         </h1>
         <p className="text-lg md:text-xl text-ink-2 leading-relaxed max-w-2xl">
           {firstTwoSentences(feature.tagline)}
