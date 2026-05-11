@@ -6,7 +6,7 @@ import { PrimaryCTA, GhostCTA, SectionHeader } from "@/components/UI";
 import { pageSeo } from "@/lib/seo";
 
 const ABOUT_DESCRIPTION =
-  "Why melt exists, what we believe, and who's building it.";
+  "Why melt exists, what we believe, and who’s building it.";
 
 export const metadata: Metadata = {
   title: "About — Melt",
@@ -68,13 +68,13 @@ export default function AboutPage() {
                   overnight. Ad-hoc queries fired when someone asked a question.
                 </p>
                 <p>
-                  Autonomous agents don&apos;t run on that cadence — they run
+                  Autonomous agents don’t run on that cadence — they run
                   per prompt. A single conversation can fan out into dozens of
                   small filters, joins, and aggregates. Across a fleet of
                   agents, the warehouse never gets to spin down.
                 </p>
                 <p>
-                  Most of those queries don&apos;t actually need Snowflake
+                  Most of those queries don’t actually need Snowflake
                   compute. The bet behind melt is that a routing layer between
                   the driver and Snowflake — invisible to the agent issuing the
                   query — can save the bill without changing a connection
@@ -103,7 +103,7 @@ export default function AboutPage() {
                   1
                 </span>
                 <p className="text-sm text-muted">
-                  The host on your driver&apos;s connection string. That&apos;s
+                  The host on your driver’s connection string. That’s
                   the entire migration.
                 </p>
               </div>
@@ -145,12 +145,12 @@ export default function AboutPage() {
           <div className="mx-auto max-w-6xl px-6 grid lg:grid-cols-12 gap-12 items-start">
             <div className="lg:col-span-5 flex flex-col gap-4">
               <span className="text-xs uppercase tracking-[0.18em] text-muted">
-                Who&apos;s building it
+                Who’s building it
               </span>
               <SectionHeader
                 align="left"
                 title={<>A small team, an open repo.</>}
-                description="We&apos;re a tiny crew of data-infra engineers shipping in public, with a growing community of contributors and design partners running melt in production."
+                description="We’re a tiny crew of data-infra engineers shipping in public, with a growing community of contributors and design partners running melt in production."
               />
             </div>
 
@@ -271,7 +271,7 @@ function ContributorsCard() {
       <p className="text-ink-2 leading-relaxed">
         Melt ships in public. Engineers from data teams running it in
         production file issues, PRs, and field reports against the open repo
-        every week — that&apos;s where most of melt&apos;s sharpest features
+        every week — that’s where most of melt’s sharpest features
         come from.
       </p>
       <a

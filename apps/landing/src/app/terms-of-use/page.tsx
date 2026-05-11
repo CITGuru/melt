@@ -82,7 +82,7 @@ export default function TermsPage() {
 
       <h2>Changes</h2>
       <p>
-        We may update these terms; we&apos;ll post the new version and update
+        We may update these terms; we’ll post the new version and update
         the &quot;Last updated&quot; date. Continued use after changes means
         you accept the updated terms.
       </p>

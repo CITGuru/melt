@@ -60,12 +60,12 @@ export default function ContactPage() {
                 contact
               </span>
               <h1 className="text-5xl md:text-6xl font-semibold tracking-tight text-ink leading-[1.04]">
-                Let&rsquo;s melt
+                Let’s melt
                 <br />
                 your bill.
               </h1>
               <p className="text-lg text-ink-2 leading-relaxed max-w-md">
-                Tell us about your warehouse setup and we&rsquo;ll get back within
+                Tell us about your warehouse setup and we’ll get back within
                 one business day. Onboarding for design partners is free.
               </p>
 
@@ -97,7 +97,7 @@ export default function ContactPage() {
                       Got it &mdash; thanks.
                     </h2>
                     <p className="text-muted max-w-sm">
-                      We&rsquo;ve emailed you a confirmation. We&rsquo;ll be in touch
+                      We’ve emailed you a confirmation. We’ll be in touch
                       within one business day.
                     </p>
                   </div>

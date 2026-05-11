@@ -21,10 +21,10 @@ export default function NotFound() {
               404
             </h1>
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-ink">
-              This route didn&apos;t classify.
+              This route didn’t classify.
             </h2>
             <p className="text-lg text-ink-2 max-w-md">
-              We couldn&apos;t find that page. The router fell through to a
+              We couldn’t find that page. The router fell through to a
               friendly fallback. Try one of these instead.
             </p>
             <div className="flex flex-col sm:flex-row items-center gap-3 mt-2">
