@@ -25,7 +25,14 @@ export function Hero() {
         </div>
 
         <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-[80px] font-semibold tracking-tight text-ink leading-[1.02] max-w-[18ch]">
-          Cut your Snowflake bill by 75%, without changing a query.
+          Cut your Snowflake bill by{" "}
+          <Link
+            href="/methodology"
+            className="underline decoration-1 underline-offset-4 decoration-ink/30 hover:decoration-ink"
+          >
+            75%
+          </Link>
+          , without changing a query.
         </h1>
 
         <p className="text-lg md:text-xl text-ink-2 leading-relaxed max-w-2xl">
