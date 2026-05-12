@@ -36,37 +36,32 @@ export default function MethodologyPage() {
           </div>
         </section>
 
-        {/* Document body */}
+        {/* Document body, part 1: intro through combined-savings math */}
         <section className="relative py-16 md:py-20">
           <div className="mx-auto max-w-3xl px-6">
             <div className="prose-melt">
               <p>
-                This document is the source of truth behind the{" "}
-                <em>
-                  &ldquo;Cut your Snowflake bill by 75%, without changing a
-                  query&rdquo;
-                </em>{" "}
-                hero claim. It defines the canonical reference workload, the
-                math model, and the sensitivity range. Every public number on
-                the landing site, in <code>readme.md</code>, and in the
-                interactive calculator should derive from the inputs and
-                equations on this page.
+                Melt cuts a typical agent-shaped Snowflake bill by 75–97% on
+                the same query workload. This page shows the canonical
+                reference workload, the math model, and the inputs that move
+                the number, plus a calculator you can run on your own usage.
               </p>
 
               {/* TL;DR */}
               <h2>TL;DR</h2>
               <p>
-                For an agent-shaped Snowflake workload, Melt compresses spend
-                along two independent routing dimensions:
+                For an agent-shaped Snowflake workload, Melt reduces spend two
+                ways:
               </p>
               <ol className="list-decimal pl-5 my-4 space-y-2">
                 <li>
-                  <strong>Query routing</strong> — for every statement, decide
-                  whether the cheap lakehouse engine can answer it. Lake-routed
-                  queries pay <strong>$0</strong> Snowflake credits.
+                  <strong>Query routing.</strong> For every statement, decide
+                  whether the cheap lakehouse engine can answer it.
+                  Lake-routed queries pay <strong>$0</strong> Snowflake
+                  credits.
                 </li>
                 <li>
-                  <strong>Warehouse routing</strong> — for the statements that
+                  <strong>Warehouse routing.</strong> For the statements that
                   do stay on Snowflake, pick the smallest warehouse that
                   satisfies the query instead of running everything on the
                   shared oversized one.
@@ -92,23 +87,19 @@ export default function MethodologyPage() {
                   [
                     "Workload shape",
                     "60% small filters, 25% selective joins, 12% daily aggregations, 3% top-N",
-                    <code key="src">examples/bench/workload.toml</code>,
+                    "Our public bench harness (linked below)",
                   ],
                   [
                     "Average query latency on Snowflake",
                     "150 ms",
-                    <>
-                      Bench median, <code>fixtures/results-real.json</code>
-                    </>,
+                    "Median observed in our public bench harness",
                   ],
                   [
                     "Baseline warehouse",
                     <>
                       One shared LARGE, <code>AUTO_SUSPEND=60</code>
                     </>,
-                    <code key="src">
-                      docs/internal/WAREHOUSE_MANAGEMENT.md §16
-                    </code>,
+                    "Snowflake warehouse-sizing analysis",
                   ],
                   [
                     "Credit rate",
@@ -118,18 +109,12 @@ export default function MethodologyPage() {
                   [
                     "Lake-eligible fraction",
                     "85%",
-                    <>
-                      <code>examples/bench/workload.toml</code>{" "}
-                      <code>[synthetic].lake_route_fraction</code>
-                    </>,
+                    "Calibrated against our agent-shaped reference workload",
                   ],
                   [
                     "Warehouse credits/hour (XS→2XL)",
                     "1, 2, 4, 8, 16, 32",
-                    <>
-                      Snowflake published pricing; mirrored in bench{" "}
-                      <code>cost.warehouse_credits_per_hour</code>
-                    </>,
+                    "Snowflake published pricing",
                   ],
                 ]}
               />
@@ -146,14 +131,14 @@ export default function MethodologyPage() {
               </p>
               <ProsePre>{`cost(query) = (latency_seconds / 3600) × credits_per_hour(warehouse) × credit_rate`}</ProsePre>
               <p>
-                This is the same model the bench harness uses (see{" "}
-                <code>examples/bench/README.md §Cost model</code>), and it
-                sanity-checks against the observed bench numbers: 100 queries ×
-                142 ms × 8 credits/h × $3 / 3600 ≈ $0.095, vs $0.102 measured.
+                This is the same model our open-source bench harness uses, and
+                it sanity-checks against the observed bench numbers: 100
+                queries × 142 ms × 8 credits/h × $3 / 3600 ≈ $0.095, vs $0.102
+                measured.
               </p>
               <p>
-                Lake-routed queries run on DuckDB locally over Parquet on S3 —{" "}
-                <strong>zero Snowflake credits</strong>. The Melt host&apos;s
+                Lake-routed queries run on DuckDB locally over Parquet on S3,
+                with <strong>zero Snowflake credits</strong>. The Melt host’s
                 compute is real but small, and out of scope for v1.
               </p>
 
@@ -183,10 +168,11 @@ savings       = f × baseline_cost`}</ProsePre>
 
               <h3>Warehouse-routing savings on the Snowflake residual</h3>
               <p>
-                Per <code>docs/internal/WAREHOUSE_MANAGEMENT.md §16</code>,
-                right-sizing each statement to its smallest sufficient
+                Right-sizing each statement to its smallest sufficient
                 warehouse converts a shared-LARGE baseline into a mixed pool.
-                Weighted-mean credits/hour for the canonical mix:
+                Snowflake publishes per-size credit rates (XS=1, S=2, M=4, L=8,
+                2XL=16, …); the weighted-mean credits/hour for the canonical
+                mix is:
               </p>
               <ProsePre>{`mix_credits_per_hour = 0.60×1 + 0.25×2 + 0.12×4 + 0.03×8 = 1.82
 ratio                = 1.82 / 8 = 22.75%
@@ -207,41 +193,18 @@ combined_savings = $96.59/month`}</ProsePre>
         {/* Calculator */}
         <CostCalculator />
 
-        {/* Sensitivity + caveats + references */}
+        {/* Document body, part 2: floor paragraph onward */}
         <section className="relative py-16 md:py-20">
           <div className="mx-auto max-w-3xl px-6">
             <div className="prose-melt">
-              <h2>Sensitivity table</h2>
-              <ProseTable
-                head={[
-                  "Lake fraction f",
-                  "Warehouse routing",
-                  "Net savings",
-                  "Monthly Melt cost (canonical)",
-                ]}
-                rows={[
-                  ["0.50", "off", "50.0%", "$50.00"],
-                  ["0.65", "off", "65.0%", "$35.00"],
-                  ["0.85", "off", "85.0%", "$15.00"],
-                  ["0.50", "on", "88.6%", "$11.40"],
-                  ["0.65", "on", "92.0%", "$7.97"],
-                  ["0.85", "on", "96.6%", "$3.41"],
-                ]}
-              />
               <p>
-                <strong>The hero&apos;s 75% is the conservative floor.</strong>{" "}
-                It holds:
-              </p>
-              <ul>
-                <li>At lake fraction ≥ 0.75 with warehouse routing off; or</li>
-                <li>At lake fraction ≥ 0.32 with warehouse routing on; or</li>
-                <li>
-                  At a Medium-baseline warehouse with lake fraction ≥ 0.75.
-                </li>
-              </ul>
-              <p>
-                It is not the upper bound — the upper bound for the canonical
-                case is 96.6%.
+                <strong>Why the hero quotes 75% as the floor.</strong> With
+                warehouse routing off, you’d need a lake-eligible fraction
+                below 0.75 to fall under 75% savings. With warehouse routing
+                on, you’d need to drop below 0.32. On a Medium-baseline
+                warehouse you’d need lake fraction below 0.75. Slide the
+                calculator above to test your own workload — the upper bound
+                on the canonical inputs is 96.6%.
               </p>
 
               <h2>
@@ -257,8 +220,8 @@ combined_savings = $96.59/month`}</ProsePre>
                   <strong>Sync infrastructure cost.</strong> Lake routing only
                   works if the underlying tables are synced to object storage.
                   S3 (or equivalent) storage + transfer is a real line item;
-                  for the design-partner cohort it&apos;s ~1–3% of the
-                  displaced Snowflake spend. Not counted in the headline.
+                  for the design-partner cohort it’s ~1–3% of the displaced
+                  Snowflake spend. Not counted in the headline.
                 </li>
                 <li>
                   <strong>Cold-start tax.</strong> A warehouse that has fully
@@ -269,7 +232,9 @@ combined_savings = $96.59/month`}</ProsePre>
                   per-statement warehouse routing ships.
                 </li>
                 <li>
-                  <strong>Edition multipliers and consumption commitments.</strong>{" "}
+                  <strong>
+                    Edition multipliers and consumption commitments.
+                  </strong>{" "}
                   Real bills include Enterprise/Business-Critical multipliers,
                   serverless adjustments, and contractual rate discounts.
                   Override <code>credit_rate</code> in the calculator to match
@@ -280,10 +245,10 @@ combined_savings = $96.59/month`}</ProsePre>
               <h2>What changes the figure</h2>
               <ul>
                 <li>
-                  <strong>Workload shape.</strong> A workload that&apos;s
-                  already 100% large aggregates can&apos;t be lake-routed and
-                  won&apos;t move with Melt; conversely, an LLM-agent workload
-                  with 95%+ small reads compresses harder.
+                  <strong>Workload shape.</strong> A workload that’s already
+                  100% large aggregates can’t be lake-routed and won’t move
+                  with Melt; conversely, an LLM-agent workload with 95%+ small
+                  reads compresses harder.
                 </li>
                 <li>
                   <strong>Lake-eligible fraction.</strong> Tables not in the
@@ -297,17 +262,19 @@ combined_savings = $96.59/month`}</ProsePre>
                   <strong>Baseline warehouse size.</strong> Customers who
                   already right-sized warehouses on their own see less from
                   warehouse routing. Customers running everything on a shared
-                  LARGE or larger see the full §16 effect.
+                  LARGE or larger see the full effect.
                 </li>
                 <li>
-                  <strong>Workload concurrency / cold-start frequency.</strong>{" "}
-                  A bursty agent fleet that wakes the warehouse repeatedly pays
-                  the cold-start floor more often than the model assumes.
+                  <strong>
+                    Workload concurrency / cold-start frequency.
+                  </strong>{" "}
+                  A bursty agent fleet that wakes the warehouse repeatedly
+                  pays the cold-start floor more often than the model assumes.
                 </li>
               </ul>
               <p>
-                Re-measure with the bench harness (<code>examples/bench/</code>
-                ) on any workload you care about — same model, your numbers.
+                Re-measure with our public bench harness on any workload you
+                care about. Same model, your numbers.
               </p>
 
               <h2>How the hero number stays honest</h2>
@@ -317,14 +284,14 @@ combined_savings = $96.59/month`}</ProsePre>
                   median or upper bound.
                 </li>
                 <li>
-                  The hero copy links to this page from &ldquo;75%&rdquo;.
+                  The hero copy links to this page from “75%”.
                 </li>
                 <li>
                   FAQ schema (homepage) is workload-dependent:{" "}
                   <em>
-                    &ldquo;Savings depend on workload shape, lake-eligible
-                    fraction, and baseline warehouse size. See the methodology
-                    page for the math and a calculator.&rdquo;
+                    “Savings depend on workload shape, lake-eligible fraction,
+                    and baseline warehouse size. See the methodology page for
+                    the math and a calculator.”
                   </em>
                 </li>
                 <li>
@@ -332,8 +299,8 @@ combined_savings = $96.59/month`}</ProsePre>
                   <code>%</code> reduction either:
                   <ol className="list-decimal pl-5 mt-1 space-y-1">
                     <li>
-                      cites this page and uses one of the rows in the
-                      sensitivity table, or
+                      cites this page and uses the canonical reference inputs
+                      above, or
                     </li>
                     <li>
                       publishes its own workload shape + inputs in the same
@@ -346,29 +313,23 @@ combined_savings = $96.59/month`}</ProsePre>
               <h2>References</h2>
               <ul>
                 <li>
-                  Bench harness:{" "}
+                  Public bench harness:{" "}
                   <a
-                    href="https://github.com/citguru/melt/tree/main/examples/bench"
+                    href="https://github.com/CITGuru/melt/tree/main/examples/bench"
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <code>examples/bench/README.md</code>
+                    github.com/CITGuru/melt/tree/main/examples/bench
                   </a>
-                  , <code>examples/bench/workload.toml</code>,{" "}
-                  <code>examples/bench/fixtures/results-real.json</code>
                 </li>
                 <li>
-                  Warehouse routing design + cost arithmetic:{" "}
-                  <code>docs/internal/WAREHOUSE_MANAGEMENT.md §16</code>
-                </li>
-                <li>
-                  Repo readme:{" "}
+                  Snowflake warehouse pricing:{" "}
                   <a
-                    href="https://github.com/citguru/melt#readme"
+                    href="https://www.snowflake.com/pricing/"
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <code>readme.md</code>
+                    snowflake.com/pricing
                   </a>
                 </li>
               </ul>
@@ -386,9 +347,9 @@ combined_savings = $96.59/month`}</ProsePre>
               Run the numbers against your account.
             </h2>
             <p className="text-lg text-ink-2 max-w-xl">
-              Bring your workload shape and credit rate. We&apos;ll walk
-              through the bench harness with you and share where the savings
-              land before you commit to a deployment.
+              Bring your workload shape and credit rate. We’ll walk through the
+              bench harness with you and share where the savings land before
+              you commit to a deployment.
             </p>
             <div className="flex flex-col sm:flex-row items-center gap-3">
               <PrimaryCTA href="/contact-us">Book a cost review</PrimaryCTA>
