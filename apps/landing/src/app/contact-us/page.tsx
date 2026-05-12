@@ -1,13 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Nav } from "@/components/Nav";
 import { Footer } from "@/components/sections/Footer";
 import { Cloud } from "@/components/Clouds";
 import { ArrowRight } from "@/components/UI";
 
+type Status = "idle" | "submitting" | "success";
+
 export default function ContactPage() {
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (status === "submitting") return;
+    setError(null);
+    setStatus("submitting");
+
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    const payload = {
+      name: String(data.get("name") ?? ""),
+      email: String(data.get("email") ?? ""),
+      company: String(data.get("company") ?? ""),
+      size: String(data.get("size") ?? ""),
+      message: String(data.get("message") ?? ""),
+    };
+
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setStatus("success");
+        return;
+      }
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(body.error || "Something went wrong. Please try again or email hello@meltcomputing.com.");
+      setStatus("idle");
+    } catch {
+      setError("Network error. Please try again or email hello@meltcomputing.com.");
+      setStatus("idle");
+    }
+  }
 
   return (
     <>
@@ -22,12 +60,12 @@ export default function ContactPage() {
                 contact
               </span>
               <h1 className="text-5xl md:text-6xl font-semibold tracking-tight text-ink leading-[1.04]">
-                Let&apos;s melt
+                Let&rsquo;s melt
                 <br />
                 your bill.
               </h1>
               <p className="text-lg text-ink-2 leading-relaxed max-w-md">
-                Tell us about your warehouse setup and we&apos;ll get back within
+                Tell us about your warehouse setup and we&rsquo;ll get back within
                 one business day. Onboarding for design partners is free.
               </p>
 
@@ -48,7 +86,7 @@ export default function ContactPage() {
 
             <div className="lg:col-span-7">
               <div className="bg-white rounded-3xl border border-line soft-shadow p-6 md:p-8">
-                {submitted ? (
+                {status === "success" ? (
                   <div className="flex flex-col items-center gap-4 py-12 text-center">
                     <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -56,38 +94,35 @@ export default function ContactPage() {
                       </svg>
                     </span>
                     <h2 className="text-2xl font-semibold tracking-tight">
-                      Got it — thanks.
+                      Got it &mdash; thanks.
                     </h2>
                     <p className="text-muted max-w-sm">
-                      We&apos;ll be in touch within one business day. In the meantime,
-                      check out the docs.
+                      We&rsquo;ve emailed you a confirmation. We&rsquo;ll be in touch
+                      within one business day.
                     </p>
                   </div>
                 ) : (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      setSubmitted(true);
-                    }}
-                    className="flex flex-col gap-4"
-                  >
+                  <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
                     <h2 className="text-2xl font-semibold tracking-tight">
                       Tell us a bit about your setup
                     </h2>
                     <div className="grid sm:grid-cols-2 gap-3">
-                      <Field label="Name" id="name" required />
+                      <Field label="Name" id="name" name="name" required />
                       <Field
                         label="Work email"
                         id="email"
+                        name="email"
                         type="email"
                         required
+                        placeholder="you@company.com"
                       />
                     </div>
                     <div className="grid sm:grid-cols-2 gap-3">
-                      <Field label="Company" id="company" />
+                      <Field label="Company" id="company" name="company" />
                       <Select
                         label="Warehouse size"
                         id="size"
+                        name="size"
                         options={[
                           "< $10k / month",
                           "$10–$50k / month",
@@ -99,18 +134,28 @@ export default function ContactPage() {
                     <Field
                       label="What are you trying to route?"
                       id="message"
+                      name="message"
                       textarea
                       placeholder="A few lines about your workload, agents, dbt setup, BI tools…"
                     />
+                    {error ? (
+                      <div
+                        role="alert"
+                        className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+                      >
+                        {error}
+                      </div>
+                    ) : null}
                     <button
                       type="submit"
-                      className="mt-2 inline-flex items-center justify-center gap-2 self-start rounded-full bg-ink text-white px-6 py-3 text-sm font-medium hover:bg-ink-2 transition-colors"
+                      disabled={status === "submitting"}
+                      className="mt-2 inline-flex items-center justify-center gap-2 self-start rounded-full bg-ink text-white px-6 py-3 text-sm font-medium hover:bg-ink-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      Send message
+                      {status === "submitting" ? "Sending…" : "Send message"}
                       <ArrowRight />
                     </button>
                     <p className="text-xs text-muted">
-                      By submitting you agree to the{" "}
+                      Please use a work email. By submitting you agree to the{" "}
                       <a href="/privacy-policy" className="underline">
                         privacy policy
                       </a>
@@ -156,6 +201,7 @@ function ContactRow({
 function Field({
   label,
   id,
+  name,
   type = "text",
   required,
   textarea,
@@ -163,6 +209,7 @@ function Field({
 }: {
   label: string;
   id: string;
+  name: string;
   type?: string;
   required?: boolean;
   textarea?: boolean;
@@ -174,9 +221,9 @@ function Field({
     <label htmlFor={id} className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-ink-2">{label}</span>
       {textarea ? (
-        <textarea id={id} name={id} rows={5} placeholder={placeholder} className={cls} />
+        <textarea id={id} name={name} rows={5} placeholder={placeholder} className={cls} />
       ) : (
-        <input id={id} name={id} type={type} required={required} placeholder={placeholder} className={cls} />
+        <input id={id} name={name} type={type} required={required} placeholder={placeholder} className={cls} />
       )}
     </label>
   );
@@ -185,10 +232,12 @@ function Field({
 function Select({
   label,
   id,
+  name,
   options,
 }: {
   label: string;
   id: string;
+  name: string;
   options: string[];
 }) {
   return (
@@ -196,7 +245,7 @@ function Select({
       <span className="text-xs font-medium text-ink-2">{label}</span>
       <select
         id={id}
-        name={id}
+        name={name}
         className="w-full rounded-2xl border border-line bg-bg-2/40 px-4 py-3 text-sm text-ink focus:outline-none focus:bg-white focus:border-ink transition-colors"
         defaultValue=""
       >
