@@ -94,13 +94,13 @@ export const features: Feature[] = [
         step: "01",
         title: "Parse",
         description:
-          "Every statement that arrives at the proxy is parsed with sqlparser-rs against the Snowflake dialect — including IFF, QUALIFY, FLATTEN, semi-structured access, time-zone arithmetic, and stored-procedure calls. The same AST drives both the routing decision and the rewrite, so per-statement overhead stays under a millisecond. If the parser can't produce a clean tree, the statement falls through to Snowflake passthrough rather than guessing.",
+          "Every statement that arrives at the proxy is parsed with sqlparser-rs against the Snowflake dialect — including IFF, QUALIFY, FLATTEN, semi-structured access, time-zone arithmetic, and stored-procedure calls. The same AST drives both the routing decision and the rewrite, so per-statement overhead stays under a millisecond. If the parser can’t produce a clean tree, the statement falls through to Snowflake passthrough rather than guessing.",
       },
       {
         step: "02",
         title: "Classify",
         description:
-          "The router runs three checks against the AST: is_write (DML, DDL, GRANT/REVOKE, MERGE, TRUNCATE), uses_snowflake_features (Snowpark calls, GENERATOR, INFORMATION_SCHEMA, Time Travel), and extract_tables (resolves 1-, 2-, 3-part names against the session's database/schema). Writes and Snowflake-only constructs short-circuit to passthrough — the lake never sees them. Comment hints override the decision tree before classification runs.",
+          "The router runs three checks against the AST: is_write (DML, DDL, GRANT/REVOKE, MERGE, TRUNCATE), uses_snowflake_features (Snowpark calls, GENERATOR, INFORMATION_SCHEMA, Time Travel), and extract_tables (resolves 1-, 2-, 3-part names against the session’s database/schema). Writes and Snowflake-only constructs short-circuit to passthrough — the lake never sees them. Comment hints override the decision tree before classification runs.",
       },
       {
         step: "03",
@@ -241,7 +241,7 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
       {
         title: "BI dashboards refreshing every 60 seconds",
         description:
-          "A Sigma board with twelve tiles, each a SELECT … GROUP BY day against a 30-day partition, scans roughly 150 MB per tile. On Snowflake that's a continuously-warm XS warehouse plus the per-second floor. On Melt, all twelve tiles route to the lake on the first refresh, sit hot in DuckDB's buffer pool, and re-execute on every tick without touching the warehouse.",
+          "A Sigma board with twelve tiles, each a SELECT … GROUP BY day against a 30-day partition, scans roughly 150 MB per tile. On Snowflake that’s a continuously-warm XS warehouse plus the per-second floor. On Melt, all twelve tiles route to the lake on the first refresh, sit hot in DuckDB’s buffer pool, and re-execute on every tick without touching the warehouse.",
       },
       {
         title: "Agent fleets generating ten thousand small queries per day",
@@ -256,19 +256,19 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
       {
         title: "Reverse-ETL jobs pulling segment definitions",
         description:
-          "SELECT user_id FROM analytics.public.user_segments WHERE segment IN (…) running 288 times a day, scanning under 80 MB each. The lake-routing TTL cache makes every run after the first essentially free on the proxy side, and the Census/Hightouch driver doesn't know the difference.",
+          "SELECT user_id FROM analytics.public.user_segments WHERE segment IN (…) running 288 times a day, scanning under 80 MB each. The lake-routing TTL cache makes every run after the first essentially free on the proxy side, and the Census/Hightouch driver doesn’t know the difference.",
       },
       {
         title: "Federated queries over Snowflake-only fact tables",
         description:
-          "A dashboard joins synced users with a 4 TB transactions table the operator declared remote so it's never mirrored. With hybrid_execution = true, the planner pushes the predicate-filtered transaction scan to Snowflake, streams the result back over Arrow IPC, and finishes the join in DuckDB. The 4 TB table is never copied and the dashboard works.",
+          "A dashboard joins synced users with a 4 TB transactions table the operator declared remote so it’s never mirrored. With hybrid_execution = true, the planner pushes the predicate-filtered transaction scan to Snowflake, streams the result back over Arrow IPC, and finishes the join in DuckDB. The 4 TB table is never copied and the dashboard works.",
       },
     ],
     comparisons: [
       {
         name: "Doing nothing (Snowflake auto-suspend, query acceleration, multi-cluster)",
         description:
-          "Snowflake's own knobs improve warehouse utilization but don't change which engine answers a query. Every read still bills against a virtual warehouse, still pays the per-second floor, still pays the spin-up tax. Melt removes the warehouse from the path entirely for queries that don't need it. The two are complementary — auto-suspend on the warehouse you keep is still useful — but they solve different problems.",
+          "Snowflake’s own knobs improve warehouse utilization but don’t change which engine answers a query. Every read still bills against a virtual warehouse, still pays the per-second floor, still pays the spin-up tax. Melt removes the warehouse from the path entirely for queries that don’t need it. The two are complementary — auto-suspend on the warehouse you keep is still useful — but they solve different problems.",
       },
       {
         name: "Greybeam",
@@ -283,17 +283,17 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
     ],
     faq: [
       {
-        question: "What happens if a query can't run on DuckDB?",
+        question: "What happens if a query can’t run on DuckDB?",
         answer:
           "It falls through to Snowflake passthrough automatically with a typed reason — WriteStatement, UsesSnowflakeFeature(\"FLATTEN\"), TableMissing, AboveThreshold, TranslationFailed{detail}, etc. The reason is exported on melt_router_decisions_total{reason=…} and printed by melt route. The client sees the same Snowflake response it would have without Melt; nothing fails open.",
       },
       {
         question: "How does access control work?",
         answer:
-          "Driver authentication is forwarded to Snowflake at login — Melt doesn't issue or store user credentials. Snowflake row-access and masking policies are honored through [snowflake.policy]: passthrough sends any policy-marked table straight to Snowflake; enforce rewrites references to filtered views that sync materializes from POLICY_REFERENCES. Service auth (PAT or RSA key-pair) is only used by the sync loop.",
+          "Driver authentication is forwarded to Snowflake at login — Melt doesn’t issue or store user credentials. Snowflake row-access and masking policies are honored through [snowflake.policy]: passthrough sends any policy-marked table straight to Snowflake; enforce rewrites references to filtered views that sync materializes from POLICY_REFERENCES. Service auth (PAT or RSA key-pair) is only used by the sync loop.",
       },
       {
-        question: "What's the latency overhead?",
+        question: "What’s the latency overhead?",
         answer:
           "Decision latency is bounded by parsing plus three catalog lookups behind LRU TTL caches — sub-millisecond on a cache hit, single-digit milliseconds on a miss. The proxy itself is a Tokio-based Rust binary with no per-request allocations beyond the AST. End-to-end, lake-routed queries usually finish faster than Snowflake (no warehouse round-trip).",
       },
@@ -305,7 +305,7 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
       {
         question: "How do I roll this back if something breaks?",
         answer:
-          "The proxy is a drop-in for the Snowflake REST endpoint. Rolling back is a connection-string flip back to your real Snowflake host — your drivers don't notice. For partial rollback, set [router].lake_max_scan_bytes = \"0B\" and reload via POST /admin/reload: every read falls through to Snowflake while the proxy keeps logging decisions.",
+          "The proxy is a drop-in for the Snowflake REST endpoint. Rolling back is a connection-string flip back to your real Snowflake host — your drivers don’t notice. For partial rollback, set [router].lake_max_scan_bytes = \"0B\" and reload via POST /admin/reload: every read falls through to Snowflake while the proxy keeps logging decisions.",
       },
       {
         question: "How fresh is the lake copy?",
@@ -324,7 +324,7 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
     shortDescription:
       "Plan-split between DuckDB and Snowflake via Arrow IPC.",
     tagline:
-      "When a query touches both lake-synced and Snowflake-only tables, melt's router splits the plan: Snowflake-resident operators ship to Snowflake, the rest run in DuckDB, and Arrow batches stitch the result. No whole-query fallback, no SQL changes.",
+      "When a query touches both lake-synced and Snowflake-only tables, melt’s router splits the plan: Snowflake-resident operators ship to Snowflake, the rest run in DuckDB, and Arrow batches stitch the result. No whole-query fallback, no SQL changes.",
     metaTitle: "Dual Execution — Plan-split queries across DuckDB and Snowflake",
     metaDescription:
       "Hybrid plans for queries that touch both lake-synced and Snowflake-only tables. Pushdown collapse, Arrow IPC bridge, parity-sampled correctness. Opt-in.",
@@ -339,19 +339,19 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
         step: "02",
         title: "Build the hybrid plan",
         description:
-          "The plan builder walks the AST and produces an Arc<HybridPlan> whose root: PlanNode tree carries Placement annotations and RemoteSql collapse nodes. Two transforms run in order: subtree collapse (any Query block whose every relation is Remote becomes a single RemoteFragment) and per-scan attach rewrite (every leftover Remote ObjectName is rewritten to sf_link.<...>, DuckDB's attached Snowflake catalog).",
+          "The plan builder walks the AST and produces an Arc<HybridPlan> whose root: PlanNode tree carries Placement annotations and RemoteSql collapse nodes. Two transforms run in order: subtree collapse (any Query block whose every relation is Remote becomes a single RemoteFragment) and per-scan attach rewrite (every leftover Remote ObjectName is rewritten to sf_link.<...>, DuckDB’s attached Snowflake catalog).",
       },
       {
         step: "03",
         title: "Choose a strategy per fragment",
         description:
-          "BridgeStrategy::Attach for single-scan nodes — run as sf_link.<...> through DuckDB's snowflake_scan operator, vectorized with predicate pushdown. BridgeStrategy::Materialize for multi-scan nodes — ship the fragment SQL to Snowflake, drain Arrow RecordBatches into DuckDB, stage as CREATE TEMP TABLE __remote_N AS …. Snowflake executes joins inside the fragment natively; DuckDB scans the staged temp table for the outer join.",
+          "BridgeStrategy::Attach for single-scan nodes — run as sf_link.<...> through DuckDB’s snowflake_scan operator, vectorized with predicate pushdown. BridgeStrategy::Materialize for multi-scan nodes — ship the fragment SQL to Snowflake, drain Arrow RecordBatches into DuckDB, stage as CREATE TEMP TABLE __remote_N AS …. Snowflake executes joins inside the fragment natively; DuckDB scans the staged temp table for the outer join.",
       },
       {
         step: "04",
         title: "Bridge results through Arrow",
         description:
-          "Both strategies move data over Arrow columnar buffers (zero-copy where the schema matches). For Materialize, the proxy opens a Snowflake fragment cursor and feeds RecordBatches through the Appender path against __remote_N. For Attach, DuckDB drives the round-trip itself: the community Snowflake extension wraps Arrow ADBC, so per-batch IPC happens inside DuckDB's pipelined executor.",
+          "Both strategies move data over Arrow columnar buffers (zero-copy where the schema matches). For Materialize, the proxy opens a Snowflake fragment cursor and feeds RecordBatches through the Appender path against __remote_N. For Attach, DuckDB drives the round-trip itself: the community Snowflake extension wraps Arrow ADBC, so per-batch IPC happens inside DuckDB’s pipelined executor.",
       },
       {
         step: "05",
@@ -396,7 +396,7 @@ melt_router_decision_duration_seconds_bucket{le="0.005"} 196_892`,
         {
           title: "Attach leg",
           description:
-            "Single-table remote scans → DuckDB's snowflake_scan via ADBC → no materialization, predicate pushdown through the extension.",
+            "Single-table remote scans → DuckDB’s snowflake_scan via ADBC → no materialization, predicate pushdown through the extension.",
         },
         {
           title: "Parity sampler",
@@ -482,12 +482,12 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "No more all-or-nothing cliff",
         description:
-          "Without dual exec, one Snowflake-only table forces the entire query back to Snowflake — even if 90% of the bytes are lake-resident. Melt's hybrid path keeps the lake side on DuckDB and only ships the operators that need Snowflake.",
+          "Without dual exec, one Snowflake-only table forces the entire query back to Snowflake — even if 90% of the bytes are lake-resident. Melt’s hybrid path keeps the lake side on DuckDB and only ships the operators that need Snowflake.",
       },
       {
         title: "Sub-query level cost reduction",
         description:
-          "The router's pushdown collapse rule turns multi-table remote subtrees into a single Snowflake-side join, executed natively. No row-by-row marshalling, no DuckDB hash-join over Snowflake-resident dimensions. melt_hybrid_pushdown_collapsed_total exposes how often this fires.",
+          "The router’s pushdown collapse rule turns multi-table remote subtrees into a single Snowflake-side join, executed natively. No row-by-row marshalling, no DuckDB hash-join over Snowflake-resident dimensions. melt_hybrid_pushdown_collapsed_total exposes how often this fires.",
       },
       {
         title: "Parity-checked correctness",
@@ -514,7 +514,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Synced fact + declared-remote dimension (compliance carve-out)",
         description:
-          "HR_DB.PEOPLE.EMPLOYEES carries PII you've decided not to sync; it stays in [sync].remote = [\"HR_DB.*\"]. Your daily report joins synced events to remote employees. Dual exec emits a single Attach rewrite for EMPLOYEES, lets DuckDB push down the WHERE region IN (...) predicate, and joins against the lake-resident events locally. PII never crosses the lake.",
+          "HR_DB.PEOPLE.EMPLOYEES carries PII you’ve decided not to sync; it stays in [sync].remote = [\"HR_DB.*\"]. Your daily report joins synced events to remote employees. Dual exec emits a single Attach rewrite for EMPLOYEES, lets DuckDB push down the WHERE region IN (...) predicate, and joins against the lake-resident events locally. PII never crosses the lake.",
       },
       {
         title: "90/10 lake-heavy dashboard joining a small Snowflake-only lookup",
@@ -527,21 +527,21 @@ chain = ["heuristic"]                  # static heuristic (default)
           "Auto-discovery picks up WAREHOUSE.NEW_TABLE at 10:00. Without dual exec, queries against it passthrough until state = active. With hybrid_allow_bootstrapping = true, the router promotes NEW_TABLE to Remote until sync catches up — Attach-rewrites it on-the-fly, keeps the rest of the query local. Reason flips from RemoteByConfig to RemoteBootstrapping in metrics.",
       },
       {
-        title: "Remote-to-remote join (two tables you're choosing not to sync)",
+        title: "Remote-to-remote join (two tables you’re choosing not to sync)",
         description:
           "Multi-tenant SaaS pattern: BIG.WAREHOUSE.ORDERS ⨝ BIG.WAREHOUSE.PRODUCTS for a Shopify-style report, both declared remote. The collapse rule fuses the join into one RemoteFragment whose snowflake_sql covers both tables; Snowflake executes the join natively in one pass.",
       },
       {
         title: "Single oversize table next to lake-sized peers",
         description:
-          "A clickstream table is over lake_max_scan_bytes = 100 GB and you don't want to sync it; everything else in the same query fits comfortably. With hybrid_allow_oversize = true, the router promotes only the over-cap table to Remote (Attach via the extension's predicate pushdown) and keeps the rest local.",
+          "A clickstream table is over lake_max_scan_bytes = 100 GB and you don’t want to sync it; everything else in the same query fits comfortably. With hybrid_allow_oversize = true, the router promotes only the over-cap table to Remote (Attach via the extension’s predicate pushdown) and keeps the rest local.",
       },
     ],
     comparisons: [
       {
-        name: "Whole-query fallback (default melt without dual exec; Greybeam's published behavior)",
+        name: "Whole-query fallback (default melt without dual exec; Greybeam’s published behavior)",
         description:
-          "Any non-eligible table — unsynced, oversize, policy-protected — bounces the entire statement to Snowflake. Simple, safe, and the right behavior when the proxy can't reason about subplans. The cost: even queries where 95% of the bytes were lake-resident get warehoused. Dual execution is the strict generalization.",
+          "Any non-eligible table — unsynced, oversize, policy-protected — bounces the entire statement to Snowflake. Simple, safe, and the right behavior when the proxy can’t reason about subplans. The cost: even queries where 95% of the bytes were lake-resident get warehoused. Dual execution is the strict generalization.",
       },
       {
         name: "Federation engines (Trino / Presto, Calcite-based adapters)",
@@ -551,14 +551,14 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         name: "Manually rewriting queries to keep them Snowflake-only",
         description:
-          "Works for a frozen workload but doesn't survive table-by-table sync onboarding, multi-tenant carve-outs, or the bootstrapping window. It's also self-defeating for the lake-sized 90% of analytics queries where Snowflake compute is what dual exec is specifically saving you.",
+          "Works for a frozen workload but doesn’t survive table-by-table sync onboarding, multi-tenant carve-outs, or the bootstrapping window. It’s also self-defeating for the lake-sized 90% of analytics queries where Snowflake compute is what dual exec is specifically saving you.",
       },
     ],
     faq: [
       {
         question: "When does hybrid fire vs. fall back to Snowflake passthrough?",
         answer:
-          "Hybrid fires when the query references at least one Remote-classified table AND the build path doesn't bail. Bailouts: set ops, window functions over a Remote table, anything where placement isn't unambiguous, or — at execute time — any threshold above hybrid_max_remote_scan_bytes / hybrid_max_fragment_bytes / hybrid_max_attach_scan_bytes. Bailouts route to Snowflake passthrough with a reason label (set_op, window_over_remote, above_threshold). Policy-protected tables also refuse hybrid regardless of size.",
+          "Hybrid fires when the query references at least one Remote-classified table AND the build path doesn’t bail. Bailouts: set ops, window functions over a Remote table, anything where placement isn’t unambiguous, or — at execute time — any threshold above hybrid_max_remote_scan_bytes / hybrid_max_fragment_bytes / hybrid_max_attach_scan_bytes. Bailouts route to Snowflake passthrough with a reason label (set_op, window_over_remote, above_threshold). Policy-protected tables also refuse hybrid regardless of size.",
       },
       {
         question: "How is correctness verified?",
@@ -566,9 +566,9 @@ chain = ["heuristic"]                  # static heuristic (default)
           "Two layers. (1) Test fixtures exercise hundreds of variant SQL files with @expected.route / @expected.strategy annotations on every PR. (2) At runtime, hybrid_parity_sample_rate (default 1%) replays a fraction of live hybrid queries against pure Snowflake; row counts compared in RowCount mode, plus a per-row XOR-of-SHA256 digest in Hash mode. Mismatches emit a structured WARN with enough context to reproduce.",
       },
       {
-        question: "What's the latency cost of the Arrow bridge?",
+        question: "What’s the latency cost of the Arrow bridge?",
         answer:
-          "Two regimes. Attach is pipelined: DuckDB calls into the community Snowflake extension per batch over Arrow Flight. Materialize pays a one-time staging cost (Snowflake fragment + Arrow drain into __remote_N) but the subsequent local scan runs at native DuckDB speed. The melt_hybrid_materialize_latency_seconds histogram surfaces the staging time per query; for typical small-dimension Materialize, it's tens of milliseconds.",
+          "Two regimes. Attach is pipelined: DuckDB calls into the community Snowflake extension per batch over Arrow Flight. Materialize pays a one-time staging cost (Snowflake fragment + Arrow drain into __remote_N) but the subsequent local scan runs at native DuckDB speed. The melt_hybrid_materialize_latency_seconds histogram surfaces the staging time per query; for typical small-dimension Materialize, it’s tens of milliseconds.",
       },
       {
         question: "Can I disable dual exec for sensitive tables, or for one tenant?",
@@ -593,15 +593,15 @@ chain = ["heuristic"]                  # static heuristic (default)
     shortDescription:
       "Land queries on already-warm warehouses. Stop paying for cold starts.",
     tagline:
-      "When a query has to hit Snowflake, send it to a warehouse that's already warm. Melt watches the fleet in real time and lands each statement on the cheapest warm cluster that can run it — no Enterprise-tier multi-cluster, no cold-start tax, no per-tenant pinning spreadsheet.",
+      "When a query has to hit Snowflake, send it to a warehouse that’s already warm. Melt watches the fleet in real time and lands each statement on the cheapest warm cluster that can run it — no Enterprise-tier multi-cluster, no cold-start tax, no per-tenant pinning spreadsheet.",
     metaTitle: "Warehouse Routing (Alpha) — Melt",
     metaDescription:
-      "An open-source proxy that routes Snowflake queries across your existing warehouses to land them on the warmest cluster with capacity. Reclaims the 60-second cold-start tax.",
+      "Drop-in proxy that lands each Snowflake query on the cheapest warm cluster with capacity. Reclaims the cold-start tax — no SQL rewrites, no driver swap.",
     problemFraming: [
-      "Snowflake bills warehouses with a hard 60-second minimum every time they resume. That's not a documentation footnote — it's the dominant cost line item on any account where compute pulses. A query that runs in 800 ms against a cold Large warehouse still costs the full minute. Spread across an agent fleet firing thousands of small statements a day, the cold-start bill alone is often a five-figure monthly line.",
-      "The default behaviour makes this worse. AUTO_SUSPEND is usually set to 60–600 seconds because keeping warehouses warm-and-idle burns credits too. So warehouses cycle: wake up, run for 60 seconds even if the query took 800 ms, suspend, and wake up again the next time anything lands on them. The AUTO_RESUME UX is excellent — drivers don't see it — but every resume rings the cash register.",
+      "Snowflake bills warehouses with a hard 60-second minimum every time they resume. That’s not a documentation footnote — it’s the dominant cost line item on any account where compute pulses. A query that runs in 800 ms against a cold Large warehouse still costs the full minute. Spread across an agent fleet firing thousands of small statements a day, the cold-start bill alone is often a five-figure monthly line.",
+      "The default behaviour makes this worse. AUTO_SUSPEND is usually set to 60–600 seconds because keeping warehouses warm-and-idle burns credits too. So warehouses cycle: wake up, run for 60 seconds even if the query took 800 ms, suspend, and wake up again the next time anything lands on them. The AUTO_RESUME UX is excellent — drivers don’t see it — but every resume rings the cash register.",
       "This used to be tolerable because human-driven workloads bunch. Analysts open a dashboard at 9am, dbt runs at 3am — within those windows a single warehouse stays warm and the 60-second floor is amortised. Agent-driven SQL breaks that pattern. Copilots, research agents, and autonomous pipelines fire small queries at machine cadence, often across many warehouses, and each individual query is too cheap to amortise its own cold start. The cold-start tax becomes the workload.",
-      "The escape hatch Snowflake offers is multi-cluster warehouses: a single warehouse logical object that fans out across N physical clusters under load. It's a real fix — but it's gated to the Enterprise tier, which carries roughly a 50% credit premium. You pay more per credit so that Snowflake can do something a proxy could do for free: route the next query to the cluster that's already warm.",
+      "The escape hatch Snowflake offers is multi-cluster warehouses: a single warehouse logical object that fans out across N physical clusters under load. It’s a real fix — but it’s gated to the Enterprise tier, which carries roughly a 50% credit premium. You pay more per credit so that Snowflake can do something a proxy could do for free: route the next query to the cluster that’s already warm.",
     ],
     alphaPromise: [
       {
@@ -617,7 +617,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Per-statement override via SQL hint",
         description:
-          "Routing is a heuristic; we'd rather give operators an out than ship a black box. A leading /*+ MELT_WAREHOUSE('TRANSFORM_WH') */ comment pins the query to a named warehouse and bypasses the router. Same syntax that exists for the existing Lake/Snowflake routing override, extended to warehouse selection.",
+          "Routing is a heuristic; we’d rather give operators an out than ship a black box. A leading /*+ MELT_WAREHOUSE('TRANSFORM_WH') */ comment pins the query to a named warehouse and bypasses the router. Same syntax that exists for the existing Lake/Snowflake routing override, extended to warehouse selection.",
       },
       {
         title: "Multi-cluster fan-out on the Standard tier",
@@ -666,22 +666,22 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Warmth tracking from the wire, not from INFORMATION_SCHEMA",
         description:
-          "Snowflake's account-usage views lag five to forty-five minutes — useful for billing, useless for routing. The proxy already sees every query begin and end. We trust that signal as the source of truth; the only cost is per-process state.",
+          "Snowflake’s account-usage views lag five to forty-five minutes — useful for billing, useless for routing. The proxy already sees every query begin and end. We trust that signal as the source of truth; the only cost is per-process state.",
       },
       {
         title: "Routing decisions live in the proxy, not in a sidecar",
         description:
-          "Yuki's published architecture splits the proxy from a separate decision engine over Redis. That's flexible, but it adds a network hop and a state-sync problem the open-source community will end up debugging. We co-locate the decision with the wire path. The routing function is a pure function of (warmth ledger, budgets, hint) — extractable later if needed.",
+          "Yuki’s published architecture splits the proxy from a separate decision engine over Redis. That’s flexible, but it adds a network hop and a state-sync problem the open-source community will end up debugging. We co-locate the decision with the wire path. The routing function is a pure function of (warmth ledger, budgets, hint) — extractable later if needed.",
       },
       {
-        title: "We won't touch warehouse lifecycle in this milestone",
+        title: "We won’t touch warehouse lifecycle in this milestone",
         description:
-          "Suspending warehouses, resizing them, creating them on demand — that's all Warehouse Management, which is its own surface area. Warehouse Routing is strictly: given the warehouses that exist, pick the right one. Doing both at once would force a deeper integration with Snowflake's admin API that's out of scope for the alpha.",
+          "Suspending warehouses, resizing them, creating them on demand — that’s all Warehouse Management, which is its own surface area. Warehouse Routing is strictly: given the warehouses that exist, pick the right one. Doing both at once would force a deeper integration with Snowflake’s admin API that’s out of scope for the alpha.",
       },
       {
         title: "No machine learning for the v1 router",
         description:
-          "A scoring function with a half-dozen knobs (warmth recency, concurrency headroom, queue depth, size match, hint, pool membership) is well-conditioned, observable, and easy to audit. If we end up needing learned weights, we'll add them; we won't ship them as the default and ask operators to trust a model they can't explain.",
+          "A scoring function with a half-dozen knobs (warmth recency, concurrency headroom, queue depth, size match, hint, pool membership) is well-conditioned, observable, and easy to audit. If we end up needing learned weights, we’ll add them; we won’t ship them as the default and ask operators to trust a model they can’t explain.",
       },
     ],
     workloads: [
@@ -693,12 +693,12 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Agent fleets firing across many warehouses",
         description:
-          "A multi-tenant SaaS gives each tenant its own warehouse for isolation. The agent fleet sends queries unevenly: tenant A is hot for an hour, then quiet; tenant B picks up. Warehouse Routing pools the eligible tenants' warehouses (where policy permits) and lands queries on whichever is currently serving traffic.",
+          "A multi-tenant SaaS gives each tenant its own warehouse for isolation. The agent fleet sends queries unevenly: tenant A is hot for an hour, then quiet; tenant B picks up. Warehouse Routing pools the eligible tenants’ warehouses (where policy permits) and lands queries on whichever is currently serving traffic.",
       },
       {
         title: "Ad-hoc analyst queries from notebooks",
         description:
-          "Jupyter / Hex / Cursor users fire queries with thinking pauses between them, exactly the pattern that fights AUTO_SUSPEND. The pool stays warm because ten analysts share three warehouses; without the router, each analyst's pinned warehouse cycles independently.",
+          "Jupyter / Hex / Cursor users fire queries with thinking pauses between them, exactly the pattern that fights AUTO_SUSPEND. The pool stays warm because ten analysts share three warehouses; without the router, each analyst’s pinned warehouse cycles independently.",
       },
       {
         title: "dbt runs that overlap with BI traffic",
@@ -715,7 +715,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         name: "Yuki Data",
         description:
-          "Closest direct comp and has been at this longer. Closed-source SaaS, multi-platform (Snowflake + BigQuery), separate decision engine over Redis. Differences that matter for melt's audience: open source, decisions on the same proxy that already routes queries to DuckDB, and a routing function that's a single Rust call instead of a Redis round-trip.",
+          "Closest direct comp and has been at this longer. Closed-source SaaS, multi-platform (Snowflake + BigQuery), separate decision engine over Redis. Differences that matter for melt’s audience: open source, decisions on the same proxy that already routes queries to DuckDB, and a routing function that’s a single Rust call instead of a Redis round-trip.",
       },
       {
         name: "Snowflake Multi-Cluster Warehouses (Enterprise)",
@@ -732,7 +732,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Data platform team on Snowflake Standard with bursty ad-hoc traffic",
         description:
-          "5–20 person team, $20K–$200K/month Snowflake bill, a handful of warehouses sized M to XL, AUTO_SUSPEND at 60–300 seconds because every credit hurts. They've looked at upgrading to Enterprise for multi-cluster and the math didn't work — the 50% premium swallows most of the queueing they'd avoid.",
+          "5–20 person team, $20K–$200K/month Snowflake bill, a handful of warehouses sized M to XL, AUTO_SUSPEND at 60–300 seconds because every credit hurts. They’ve looked at upgrading to Enterprise for multi-cluster and the math didn’t work — the 50% premium swallows most of the queueing they’d avoid.",
       },
       {
         title: "Multi-tenant SaaS with a warehouse-per-tenant pattern",
@@ -754,7 +754,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         question: "Will it work on Snowflake Standard tier?",
         answer:
-          "Yes — that's the point. Cross-warehouse fan-out is the headline use case for Standard-tier accounts, because Snowflake's native answer (multi-cluster warehouses) is gated to Enterprise. Standard-tier customers get pool-based routing without paying the Enterprise per-credit premium.",
+          "Yes — that’s the point. Cross-warehouse fan-out is the headline use case for Standard-tier accounts, because Snowflake’s native answer (multi-cluster warehouses) is gated to Enterprise. Standard-tier customers get pool-based routing without paying the Enterprise per-credit premium.",
       },
       {
         question: "How do you detect warmth without polluting INFORMATION_SCHEMA?",
@@ -769,7 +769,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         question: "Will I lose Query Routing to DuckDB if I enable Warehouse Routing?",
         answer:
-          "No. Query Routing decides whether a statement runs on the lake or on Snowflake; Warehouse Routing decides which Snowflake warehouse it lands on. They compose: a query the lake can't safely answer goes to Snowflake passthrough, and Warehouse Routing then picks the warmest eligible warehouse for it.",
+          "No. Query Routing decides whether a statement runs on the lake or on Snowflake; Warehouse Routing decides which Snowflake warehouse it lands on. They compose: a query the lake can’t safely answer goes to Snowflake passthrough, and Warehouse Routing then picks the warmest eligible warehouse for it.",
       },
     ],
   },
@@ -783,31 +783,31 @@ chain = ["heuristic"]                  # static heuristic (default)
     shortDescription:
       "Right-size warehouses, manage suspends, and budget by team.",
     tagline:
-      "The control plane for the Snowflake credits you do still spend. Melt right-sizes warehouses, schedules suspends and resumes around your team's actual hours, and enforces per-team budgets at admit-time — from the same proxy that already sees every statement.",
+      "The control plane for the Snowflake credits you do still spend. Melt right-sizes warehouses, schedules suspends and resumes around your team’s actual hours, and enforces per-team budgets at admit-time — from the same proxy that already sees every statement.",
     metaTitle: "Warehouse Management (Alpha) — Melt",
     metaDescription:
       "Continuous warehouse right-sizing, schedule-aware suspends, per-team budgets enforced before queries run, and credit anomaly alerts. Open source, in your VPC.",
     problemFraming: [
       "Warehouse management on Snowflake is, for almost every team we talk to, a quarterly cleanup project disguised as a permanent process. Right-sizing happens when somebody on the data team carves out a Friday to spelunk in SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY, sort by bytes_spilled_to_remote_storage, eyeball the top offenders, and ALTER three or four warehouses up or down. By the next quarter the workload mix has drifted, an ML team has started running training on the shared LARGE, and the spreadsheet is wrong again.",
       "Auto-suspend, the one knob Snowflake ships in the box, is reactive and blunt. You pick a single idle timeout per warehouse and live with the consequences either way. Set it short and your analysts pay cold-start tax all morning; set it long and the warehouse idles through lunch, the standup, and the all-hands. Nothing in the box says \"this warehouse should suspend at 6pm on weekdays and stay down until 8am, except when the on-call dbt job runs.\"",
-      "Budgets and chargeback are worse. Snowflake's Resource Monitors are warehouse-scoped, can only suspend or notify (not throttle, not warn-then-allow, not split by user), don't see serverless or Cortex spend, and assign exactly one monitor per warehouse. Custom Budgets added tag-based tracking but only emit notifications — they don't block, throttle, or route. So FinOps reality on most data teams is a dbt model, a Looker dashboard nobody opens until invoice day, and a Slack thread where someone gets blamed for a 4× spike that already happened.",
-      "The escape hatch most teams reach for is SELECT (now joining DoiT). SELECT is genuinely good at the observability half. But it's an observer: it ingests ACCOUNT_USAGE, surfaces what you should do, and leaves the doing to you. Pricing is 4% of Snowflake spend with a $1,499/mo minimum — which scales with the bill you're trying to cut.",
+      "Budgets and chargeback are worse. Snowflake’s Resource Monitors are warehouse-scoped, can only suspend or notify (not throttle, not warn-then-allow, not split by user), don’t see serverless or Cortex spend, and assign exactly one monitor per warehouse. Custom Budgets added tag-based tracking but only emit notifications — they don’t block, throttle, or route. So FinOps reality on most data teams is a dbt model, a Looker dashboard nobody opens until invoice day, and a Slack thread where someone gets blamed for a 4× spike that already happened.",
+      "The escape hatch most teams reach for is SELECT (now joining DoiT). SELECT is genuinely good at the observability half. But it’s an observer: it ingests ACCOUNT_USAGE, surfaces what you should do, and leaves the doing to you. Pricing is 4% of Snowflake spend with a $1,499/mo minimum — which scales with the bill you’re trying to cut.",
     ],
     alphaPromise: [
       {
         title: "Continuous right-sizing",
         description:
-          "Melt watches a rolling window of statements through the proxy — bytes scanned, runtime, spill, queue depth — and sets each warehouse's size for the next hour against the workload mix it actually saw. Right-sizing is per-warehouse-per-hour, decision is logged, override is one line in melt.toml, resize is a single ALTER WAREHOUSE.",
+          "Melt watches a rolling window of statements through the proxy — bytes scanned, runtime, spill, queue depth — and sets each warehouse’s size for the next hour against the workload mix it actually saw. Right-sizing is per-warehouse-per-hour, decision is logged, override is one line in melt.toml, resize is a single ALTER WAREHOUSE.",
       },
       {
         title: "Schedule-aware suspend and resume",
         description:
-          "Auto-suspend stays on as a safety net, but Melt layers a calendar over it: pre-warm the BI warehouse at 7:55am Mon–Fri so the first dashboard isn't cold; suspend the dbt warehouse at 6pm and leave it down through the weekend. Schedules are TOML, hot-reloaded, and override-able by Slack command.",
+          "Auto-suspend stays on as a safety net, but Melt layers a calendar over it: pre-warm the BI warehouse at 7:55am Mon–Fri so the first dashboard isn’t cold; suspend the dbt warehouse at 6pm and leave it down through the weekend. Schedules are TOML, hot-reloaded, and override-able by Slack command.",
       },
       {
         title: "Per-team and per-workload budgets, enforced at admit-time",
         description:
-          "Melt classifies every statement and tags it by team / role / query-tag / warehouse. Budgets are TOML — team = \"growth\", monthly_credits = 5000, on_breach = \"warn\" or \"throttle\" or \"block\". Enforcement happens before the warehouse spins up. Soft caps slow the offender's queue; hard caps reject with a SQL-shaped error and a runbook link.",
+          "Melt classifies every statement and tags it by team / role / query-tag / warehouse. Budgets are TOML — team = \"growth\", monthly_credits = 5000, on_breach = \"warn\" or \"throttle\" or \"block\". Enforcement happens before the warehouse spins up. Soft caps slow the offender’s queue; hard caps reject with a SQL-shaped error and a runbook link.",
       },
       {
         title: "Anomaly detection on credits, with Slack and PagerDuty",
@@ -817,7 +817,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Cost attribution by user, role, query tag, and warehouse",
         description:
-          "Because every statement crosses the proxy with its session context attached, attribution doesn't depend on QUERY_HISTORY lag (45 minutes, up to 3 hours) or on dbt-package conventions. Melt produces a near-real-time credits_used stream labeled by user, role, warehouse, query_tag, and any custom session label.",
+          "Because every statement crosses the proxy with its session context attached, attribution doesn’t depend on QUERY_HISTORY lag (45 minutes, up to 3 hours) or on dbt-package conventions. Melt produces a near-real-time credits_used stream labeled by user, role, warehouse, query_tag, and any custom session label.",
       },
       {
         title: "Warehouse personalities",
@@ -827,7 +827,7 @@ chain = ["heuristic"]                  # static heuristic (default)
     ],
     architecture: {
       description:
-        "The decision engine reuses the Postgres-backed control plane (crates/melt-control/) that today stores sync state and policy markers, the Snowflake HTTP client (crates/melt-snowflake/) that today carries sync's outbound calls, and the credit math that powers the local audit. None of it is \"let's build a new ingestion pipeline.\"",
+        "The decision engine reuses the Postgres-backed control plane (crates/melt-control/) that today stores sync state and policy markers, the Snowflake HTTP client (crates/melt-snowflake/) that today carries sync’s outbound calls, and the credit math that powers the local audit. None of it is \"let’s build a new ingestion pipeline.\"",
       diagram: `driver / dbt / agent / BI ──▶ melt-proxy
                                   parses, classifies, tags every statement
                                           │
@@ -858,17 +858,17 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Decisions live in the proxy, not in an observer that ingests QUERY_HISTORY",
         description:
-          "Anyone who's tried to build this from QUERY_HISTORY has felt the latency (45 min to 3 hours) and the attribution gaps (session context is gone). Melt's bet: the proxy is the right control point. It sees every statement live with full session context, can label and bill credits in-flight, and can act on a decision the same second it makes it.",
+          "Anyone who’s tried to build this from QUERY_HISTORY has felt the latency (45 min to 3 hours) and the attribution gaps (session context is gone). Melt’s bet: the proxy is the right control point. It sees every statement live with full session context, can label and bill credits in-flight, and can act on a decision the same second it makes it.",
       },
       {
         title: "Right-sizing is per-warehouse-per-hour, not per-query",
         description:
-          "Per-query right-sizing is what Warehouse Routing does, and it's a different problem. Per-warehouse-per-hour is the right granularity for the control plane: workload mix is stable enough at the hour scale, the resize cost (a single ALTER) is negligible, and operators can reason about it. Going finer is a science project; going coarser is what spreadsheets already do.",
+          "Per-query right-sizing is what Warehouse Routing does, and it’s a different problem. Per-warehouse-per-hour is the right granularity for the control plane: workload mix is stable enough at the hour scale, the resize cost (a single ALTER) is negligible, and operators can reason about it. Going finer is a science project; going coarser is what spreadsheets already do.",
       },
       {
         title: "Budgets enforce at proxy admit-time, not after the credit has burned",
         description:
-          "Snowflake Resource Monitors and Custom Budgets are notify-or-suspend-after-the-fact. By the time the alert fires, the credits are gone. Because Melt is in front of the warehouse, it can refuse, throttle, or warn the next statement from a team that's blown its budget — the same way an admission controller does on Kubernetes. That's the only enforcement model that closes the loop.",
+          "Snowflake Resource Monitors and Custom Budgets are notify-or-suspend-after-the-fact. By the time the alert fires, the credits are gone. Because Melt is in front of the warehouse, it can refuse, throttle, or warn the next statement from a team that’s blown its budget — the same way an admission controller does on Kubernetes. That’s the only enforcement model that closes the loop.",
       },
       {
         title: "Open source, so your FinOps team can audit the decision logic",
@@ -885,7 +885,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Multi-tenant SaaS doing per-customer cost attribution",
         description:
-          "A platform that runs customer workloads against shared Snowflake compute and needs to chargeback by customer. Today: a query_tag convention nobody enforces and a dbt model that approximates attribution from QUERY_HISTORY. With Melt: every statement carries the customer's session label, and credits_used{customer=...} flows directly into the per-customer billing pipeline.",
+          "A platform that runs customer workloads against shared Snowflake compute and needs to chargeback by customer. Today: a query_tag convention nobody enforces and a dbt model that approximates attribution from QUERY_HISTORY. With Melt: every statement carries the customer’s session label, and credits_used{customer=...} flows directly into the per-customer billing pipeline.",
       },
       {
         title: "Bursty ML training that needs LARGE for 2h then nothing",
@@ -895,14 +895,14 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Resumed from a Slack-bot last night and forgot to suspend",
         description:
-          "The most common failure mode in every account we've looked at. Someone hits /warehouse resume WH_ANALYTICS at 11pm to debug something, finds the answer, closes the laptop. Melt's idle claw-back recognizes \"no human-issued statement in 90 minutes\" — task-driven keep-alive doesn't reset the timer — and suspends.",
+          "The most common failure mode in every account we’ve looked at. Someone hits /warehouse resume WH_ANALYTICS at 11pm to debug something, finds the answer, closes the laptop. Melt’s idle claw-back recognizes \"no human-issued statement in 90 minutes\" — task-driven keep-alive doesn’t reset the timer — and suspends.",
       },
     ],
     comparisons: [
       {
         name: "SELECT / DoiT PerfectScale",
         description:
-          "4% of Snowflake spend, $1,499/mo min. Mature observability, automated savings recommendations, usage groups, monitors, AI copilot, dbt-package origin. Observer-only — surfaces what to do, doesn't enforce. Can't refuse a query at admit time. Pricing scales with the spend you're cutting.",
+          "4% of Snowflake spend, $1,499/mo min. Mature observability, automated savings recommendations, usage groups, monitors, AI copilot, dbt-package origin. Observer-only — surfaces what to do, doesn’t enforce. Can’t refuse a query at admit time. Pricing scales with the spend you’re cutting.",
       },
       {
         name: "Snowflake Resource Monitors",
@@ -924,34 +924,34 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "The 4–15-person data platform team",
         description:
-          "Owns Snowflake spend at $200k–$2M/yr scale. Has tried dbt-snowflake-monitoring, has a partial Looker dashboard, has been pitched SELECT and is wincing at the % pricing. Doesn't have a dedicated FinOps person and doesn't want to hire one. Wants enforcement, not another dashboard to ignore.",
+          "Owns Snowflake spend at $200k–$2M/yr scale. Has tried dbt-snowflake-monitoring, has a partial Looker dashboard, has been pitched SELECT and is wincing at the % pricing. Doesn’t have a dedicated FinOps person and doesn’t want to hire one. Wants enforcement, not another dashboard to ignore.",
       },
       {
         title: "The multi-tenant SaaS data team",
         description:
-          "Bills customers based on Snowflake usage. Today's attribution leans on query_tag discipline customers half-honor and dbt models that lag the truth. Wants real-time per-tenant credits with hard cutoffs when a customer hits their tier limit, not an end-of-month surprise.",
+          "Bills customers based on Snowflake usage. Today’s attribution leans on query_tag discipline customers half-honor and dbt models that lag the truth. Wants real-time per-tenant credits with hard cutoffs when a customer hits their tier limit, not an end-of-month surprise.",
       },
       {
         title: "The platform engineer adding FinOps to an agent rollout",
         description:
-          "Just shipped agentic SQL into production, watched QUERY_HISTORY 5×, and got a Slack message from finance. Already evaluating Melt for query routing because that's where the bill curve bent. Adding warehouse management on top is the same proxy, the same melt.toml, the same VPC.",
+          "Just shipped agentic SQL into production, watched QUERY_HISTORY 5×, and got a Slack message from finance. Already evaluating Melt for query routing because that’s where the bill curve bent. Adding warehouse management on top is the same proxy, the same melt.toml, the same VPC.",
       },
     ],
     faq: [
       {
         question: "How is this different from SELECT?",
         answer:
-          "SELECT (now joining DoiT) is an observer — it ingests ACCOUNT_USAGE, surfaces recommendations, and leaves enforcement to your team. Melt is in the data path: it sees every statement live, can refuse or throttle a query at admit time, and attributes credits in-flight without a QUERY_HISTORY join. SELECT is more mature on the observability surface today; Melt closes the loop the other product can't, from the same proxy you're already running. We won't tell you Melt replaces SELECT in alpha — for many teams the pragmatic answer is \"use both\" until parity catches up.",
+          "SELECT (now joining DoiT) is an observer — it ingests ACCOUNT_USAGE, surfaces recommendations, and leaves enforcement to your team. Melt is in the data path: it sees every statement live, can refuse or throttle a query at admit time, and attributes credits in-flight without a QUERY_HISTORY join. SELECT is more mature on the observability surface today; Melt closes the loop the other product can’t, from the same proxy you’re already running. We won’t tell you Melt replaces SELECT in alpha — for many teams the pragmatic answer is \"use both\" until parity catches up.",
       },
       {
-        question: "Will I save more vs. Snowflake's native Resource Monitors?",
+        question: "Will I save more vs. Snowflake’s native Resource Monitors?",
         answer:
-          "Resource Monitors only act after credits are already burned — they suspend or notify, but the spend has happened. They're warehouse-scoped only (one monitor per warehouse, no team attribution). Melt's budgets enforce at admit-time before the query runs, label spend by user/role/tag in real time, and cover workloads Resource Monitors can't see.",
+          "Resource Monitors only act after credits are already burned — they suspend or notify, but the spend has happened. They’re warehouse-scoped only (one monitor per warehouse, no team attribution). Melt’s budgets enforce at admit-time before the query runs, label spend by user/role/tag in real time, and cover workloads Resource Monitors can’t see.",
       },
       {
         question: "Can I run this without giving up query routing?",
         answer:
-          "Yes. Warehouse management is a separate [control] block in melt.toml and works whether routing is on, off, in passthrough mode, or running allowlist-only. If you only want the control plane and want every query to passthrough to Snowflake unchanged, set [router].mode = \"passthrough\" and you have a Snowflake control plane that doesn't make routing decisions.",
+          "Yes. Warehouse management is a separate [control] block in melt.toml and works whether routing is on, off, in passthrough mode, or running allowlist-only. If you only want the control plane and want every query to passthrough to Snowflake unchanged, set [router].mode = \"passthrough\" and you have a Snowflake control plane that doesn’t make routing decisions.",
       },
       {
         question: "How does cost attribution work — by user, by tag, by warehouse?",
@@ -959,7 +959,7 @@ chain = ["heuristic"]                  # static heuristic (default)
           "All four. Every statement that crosses the proxy is labeled by user, role, warehouse, and query_tag (whatever the session set), and credits are computed in real-time from the same credits_per_hour × execution_time math the melt audit command uses today. Output flows into /metrics, the budget ledger, and webhook streams.",
       },
       {
-        question: "What's the alpha scope — what works vs. what's planned?",
+        question: "What’s the alpha scope — what works vs. what’s planned?",
         answer:
           "Alpha will start with: schedule-driven suspend/resume (TOML-defined, hot-reloaded), per-team / per-warehouse budgets with soft (warn) and hard (block) caps enforced at proxy admit-time, real-time per-statement credit attribution into /metrics, and Slack + PagerDuty webhook fanout. Continuous right-sizing and warehouse personalities will follow; the design is documented but the auto-resize forecast needs more design-partner workload data before we ship it on by default.",
       },
@@ -987,8 +987,8 @@ chain = ["heuristic"]                  # static heuristic (default)
       "Melt detects repeated query patterns from real Snowflake traffic and materializes them to Iceberg or DuckLake automatically. No CREATE MATERIALIZED VIEW. No Enterprise tier. No dbt model file.",
     problemFraming: [
       "Every analytics workload has a long tail of queries that look almost identical. The 9am dashboard refresh hits the same count(*) WHERE day > current_date - 7 GROUP BY 1 it ran yesterday. The customer-facing tile asks for top-N by month, parameterized only by tenant_id, ten thousand times a day. The agent fleet keeps rephrasing events in the last 24h grouped by source. Snowflake recomputes the lot, every time, with metered credits.",
-      "Snowflake's result cache is supposed to save you — except it only matches exact query text and is invalidated by any mutation to the underlying tables. A WHERE created_at > $now filter, a session timezone shift, or a Looker dashboard appending LIMIT 5000 defeats it. For the parameterized BI and product-analytics workloads that dominate real warehouses, the result cache hit rate is close to zero.",
-      "Snowflake's Materialized Views are the next answer up the stack — and they are conspicuously thin. They're an Enterprise-tier SKU, the SQL surface is heavily restricted (no joins, no UNION, no HAVING, no window functions, no QUALIFY, no UDFs), and on a large fact table the background maintenance can quietly cost more than the queries they were built to accelerate.",
+      "Snowflake’s result cache is supposed to save you — except it only matches exact query text and is invalidated by any mutation to the underlying tables. A WHERE created_at > $now filter, a session timezone shift, or a Looker dashboard appending LIMIT 5000 defeats it. For the parameterized BI and product-analytics workloads that dominate real warehouses, the result cache hit rate is close to zero.",
+      "Snowflake’s Materialized Views are the next answer up the stack — and they are conspicuously thin. They’re an Enterprise-tier SKU, the SQL surface is heavily restricted (no joins, no UNION, no HAVING, no window functions, no QUALIFY, no UDFs), and on a large fact table the background maintenance can quietly cost more than the queries they were built to accelerate.",
       "Melt sits in the path of every query. We can already see the patterns. We can do something about them.",
     ],
     alphaPromise: [
@@ -1020,12 +1020,12 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Per-pattern observability and eviction",
         description:
-          "Each MV exports melt_mv_serves_total{pattern,freshness}, melt_mv_hit_rate, melt_mv_storage_bytes, melt_mv_refresh_cost_credits, and per-pattern p50/p95 served latency. An MV that hasn't been served in N hours, or whose storage cost has overtaken the warehouse credits it saves, is auto-marked for retirement.",
+          "Each MV exports melt_mv_serves_total{pattern,freshness}, melt_mv_hit_rate, melt_mv_storage_bytes, melt_mv_refresh_cost_credits, and per-pattern p50/p95 served latency. An MV that hasn’t been served in N hours, or whose storage cost has overtaken the warehouse credits it saves, is auto-marked for retirement.",
       },
     ],
     architecture: {
       description:
-        "The fingerprinter, pattern detector, and recommender are the new pieces. Everything downstream (storage, sync, route, serve) is already in production for melt's normal lake-routing path — MVs reuse the catalog, the writer pools, and the router decision plane.",
+        "The fingerprinter, pattern detector, and recommender are the new pieces. Everything downstream (storage, sync, route, serve) is already in production for melt’s normal lake-routing path — MVs reuse the catalog, the writer pools, and the router decision plane.",
       diagram: `Routed query stream
         │  AST + extracted TableRefs (already produced)
         ▼
@@ -1068,17 +1068,17 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Pattern detection beats user-declared",
         description:
-          "The MVs that should exist in any non-trivial workload outnumber the ones a human will ever hand-write. The query log already knows which they are; we're going to surface them instead of waiting for someone to file a ticket.",
+          "The MVs that should exist in any non-trivial workload outnumber the ones a human will ever hand-write. The query log already knows which they are; we’re going to surface them instead of waiting for someone to file a ticket.",
       },
       {
         title: "Materialize in your lake, not in Snowflake",
         description:
-          "Iceberg / DuckLake on object storage is an order of magnitude cheaper per terabyte than Snowflake-resident MVs, doesn't need an Enterprise SKU, and is portable — when you eventually rip melt out, the MVs are still queryable tables you own.",
+          "Iceberg / DuckLake on object storage is an order of magnitude cheaper per terabyte than Snowflake-resident MVs, doesn’t need an Enterprise SKU, and is portable — when you eventually rip melt out, the MVs are still queryable tables you own.",
       },
       {
         title: "Recommend → opt-in, not auto-create",
         description:
-          "Storage and refresh costs are bounded only when a human decides which patterns are worth materializing. Magical auto-creation is a great demo and a terrible production posture; we're explicitly rejecting it.",
+          "Storage and refresh costs are bounded only when a human decides which patterns are worth materializing. Magical auto-creation is a great demo and a terrible production posture; we’re explicitly rejecting it.",
       },
       {
         title: "Refresh is cost-aware, not schedule-driven",
@@ -1088,7 +1088,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Serve from cache happens at the proxy",
         description:
-          "The same Rust hot path that already classifies and routes every query is where MV matching lives. Clients don't pick a cache, don't get a different driver, don't change their SQL — the cache is invisible by design.",
+          "The same Rust hot path that already classifies and routes every query is where MV matching lives. Clients don’t pick a cache, don’t get a different driver, don’t change their SQL — the cache is invisible by design.",
       },
     ],
     workloads: [
@@ -1110,7 +1110,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "QUALIFY / ROLLUP / window-heavy SQL",
         description:
-          "Snowflake's own MVs legally cannot materialize these. Because melt materializes by running the query and storing the result as a normal Iceberg table, there's no SQL-surface restriction — anything that returns rows can be cached.",
+          "Snowflake’s own MVs legally cannot materialize these. Because melt materializes by running the query and storing the result as a normal Iceberg table, there’s no SQL-surface restriction — anything that returns rows can be cached.",
       },
       {
         title: "Schema-evolution-stable lookups",
@@ -1132,7 +1132,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         name: "dbt materialized models",
         description:
-          "Run on dbt's schedule, not query-driven. Requires manual model definition. Works well for known workloads, but the long tail of patterns that should be materialized stays invisible until someone writes a model file.",
+          "Run on dbt’s schedule, not query-driven. Requires manual model definition. Works well for known workloads, but the long tail of patterns that should be materialized stays invisible until someone writes a model file.",
       },
       {
         name: "Snowflake result cache",
@@ -1144,12 +1144,12 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Embedded analytics and product-facing dashboards",
         description:
-          "Teams where the same shape of query repeats thousands of times a day, parameterized just enough that Snowflake's result cache never hits. The economics break down fastest here — every customer, every refresh, every minute.",
+          "Teams where the same shape of query repeats thousands of times a day, parameterized just enough that Snowflake’s result cache never hits. The economics break down fastest here — every customer, every refresh, every minute.",
       },
       {
         title: "Snowflake Standard-tier accounts",
         description:
-          "Can't access native MVs at all and don't want to upgrade an entire account to Enterprise just to accelerate three dashboards.",
+          "Can’t access native MVs at all and don’t want to upgrade an entire account to Enterprise just to accelerate three dashboards.",
       },
       {
         title: "Analytics-engineering teams drowning in dbt incremental models",
@@ -1159,39 +1159,39 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Agent / LLM analytics platforms",
         description:
-          "Where query text is non-deterministic but query intent isn't — fingerprinting catches the pattern even when the SQL differs.",
+          "Where query text is non-deterministic but query intent isn’t — fingerprinting catches the pattern even when the SQL differs.",
       },
     ],
     faq: [
       {
         question: "How does it match queries to MVs — exact text, or shape?",
         answer:
-          "Shape. Each statement is parsed and reduced to a fingerprint that strips literals, normalizes parameters, and canonicalizes things like now() - interval '7 day' vs current_date - 7. Two queries that differ only in tenant_id or WHERE day > <today> are one pattern. That's the entire reason this beats Snowflake's result cache for real workloads.",
+          "Shape. Each statement is parsed and reduced to a fingerprint that strips literals, normalizes parameters, and canonicalizes things like now() - interval '7 day' vs current_date - 7. Two queries that differ only in tenant_id or WHERE day > <today> are one pattern. That’s the entire reason this beats Snowflake’s result cache for real workloads.",
       },
       {
         question: "What freshness guarantees does it provide?",
         answer:
-          "Per-MV. You set a freshness SLO when you accept a recommendation — \"serve up to 60 seconds stale,\" \"serve up to 5 minutes stale,\" etc. The refresh planner uses the same CDC stream that already keeps your synced lake tables fresh. If the planner can't meet the SLO, the matcher falls back to running the original query through Snowflake — never serves a stale answer past its declared SLO.",
+          "Per-MV. You set a freshness SLO when you accept a recommendation — \"serve up to 60 seconds stale,\" \"serve up to 5 minutes stale,\" etc. The refresh planner uses the same CDC stream that already keeps your synced lake tables fresh. If the planner can’t meet the SLO, the matcher falls back to running the original query through Snowflake — never serves a stale answer past its declared SLO.",
       },
       {
         question: "Where are MVs stored?",
         answer:
-          "In your lake — the same Iceberg or DuckLake catalog the rest of melt syncs to, in your S3 / R2 / GCS bucket. They're plain Iceberg tables. You can read them from Spark, Trino, DuckDB, anything that speaks the format. If you ever uninstall melt, the MVs stay queryable.",
+          "In your lake — the same Iceberg or DuckLake catalog the rest of melt syncs to, in your S3 / R2 / GCS bucket. They’re plain Iceberg tables. You can read them from Spark, Trino, DuckDB, anything that speaks the format. If you ever uninstall melt, the MVs stay queryable.",
       },
       {
         question: "What if my data changes faster than the MV can refresh?",
         answer:
-          "Two outcomes, both safe. If the MV is inside SLO, you're served from it. If the MV would be outside SLO (the CDC stream is lagging or the refresh hasn't completed), the matcher routes that query through to Snowflake instead. We never silently serve data older than what you asked for.",
+          "Two outcomes, both safe. If the MV is inside SLO, you’re served from it. If the MV would be outside SLO (the CDC stream is lagging or the refresh hasn’t completed), the matcher routes that query through to Snowflake instead. We never silently serve data older than what you asked for.",
       },
       {
-        question: "How is this different from Snowflake's native MVs and Dynamic Tables?",
+        question: "How is this different from Snowflake’s native MVs and Dynamic Tables?",
         answer:
-          "Three things. (1) Workload-driven, not user-declared — melt sees which patterns matter and recommends them. (2) Stored in your lake, not in Snowflake's storage layer — cheaper, portable, no Enterprise tier. (3) No SQL-surface restriction — Snowflake MVs forbid joins, UNION, QUALIFY, window functions, UDFs; melt materializes anything that returns rows because we materialize the output, not the plan.",
+          "Three things. (1) Workload-driven, not user-declared — melt sees which patterns matter and recommends them. (2) Stored in your lake, not in Snowflake’s storage layer — cheaper, portable, no Enterprise tier. (3) No SQL-surface restriction — Snowflake MVs forbid joins, UNION, QUALIFY, window functions, UDFs; melt materializes anything that returns rows because we materialize the output, not the plan.",
       },
       {
         question: "Will my dashboards see stale data?",
         answer:
-          "Only if you opted in to a freshness SLO that allows it. The default for new MVs is conservative; the matcher won't serve outside-SLO results. The full audit trail lives next to every other routing decision in /metrics and the melt route CLI — you can see, per query, whether it was served from an MV, which MV, and how stale that MV was at serve time.",
+          "Only if you opted in to a freshness SLO that allows it. The default for new MVs is conservative; the matcher won’t serve outside-SLO results. The full audit trail lives next to every other routing decision in /metrics and the melt route CLI — you can see, per query, whether it was served from an MV, which MV, and how stale that MV was at serve time.",
       },
     ],
   },
@@ -1210,16 +1210,16 @@ chain = ["heuristic"]                  # static heuristic (default)
     metaDescription:
       "CDC-fed incremental view maintenance built on top of the proxy: dbt-compatible models, sub-second freshness, per-view SLOs, materialized into Iceberg or DuckLake.",
     problemFraming: [
-      "Most \"real-time\" analytics is a fiction held together by cron. The dashboard tile that says \"live active sessions\" is usually a dbt incremental model running every 15 minutes on a Snowflake task. The anomaly alert that pages on-call is a Streams + Tasks pipeline whose SCHEDULE is set to 5 MINUTE because the team got tired of the cloud-services bill at 1 MINUTE. The freshness gap between what users see and what's true in the warehouse is measured in coffee breaks.",
-      "Snowflake's native answer is two-and-a-half products. Streams + Tasks are operationally heavy — tasks fail silently, pin a warehouse for the duration of every run, and the minimum schedule for a non-triggered task is one minute. Dynamic Tables are the newer, declarative answer: set TARGET_LAG = '1 minute' and Snowflake decides when to refresh. The freshness floor is one minute, the compute is your warehouse, and every refresh of every dependent dynamic table charges credits whether anyone queried the result or not.",
-      "Teams who actually need streaming-grade freshness — embedded analytics, anomaly detection, real-time ML features — have been quietly migrating that derived state out of the warehouse entirely. Materialize and RisingWave are excellent at this. The catch is that they're separate databases. You operate them alongside Snowflake, you split your data model across two systems, you re-implement RBAC, and your single source of truth is now two sources of truth that diverge whenever the pipeline lags.",
-      "Melt already runs the CDC pipeline. We pull change streams out of Snowflake to keep the lake fresh — that's how Lake-routed queries see committed data within seconds. Incremental Views asks the obvious question: if the same change stream is already flowing through the proxy, why are you paying a warehouse to recompute a GROUP BY user_id every minute?",
+      "Most \"real-time\" analytics is a fiction held together by cron. The dashboard tile that says \"live active sessions\" is usually a dbt incremental model running every 15 minutes on a Snowflake task. The anomaly alert that pages on-call is a Streams + Tasks pipeline whose SCHEDULE is set to 5 MINUTE because the team got tired of the cloud-services bill at 1 MINUTE. The freshness gap between what users see and what’s true in the warehouse is measured in coffee breaks.",
+      "Snowflake’s native answer is two-and-a-half products. Streams + Tasks are operationally heavy — tasks fail silently, pin a warehouse for the duration of every run, and the minimum schedule for a non-triggered task is one minute. Dynamic Tables are the newer, declarative answer: set TARGET_LAG = '1 minute' and Snowflake decides when to refresh. The freshness floor is one minute, the compute is your warehouse, and every refresh of every dependent dynamic table charges credits whether anyone queried the result or not.",
+      "Teams who actually need streaming-grade freshness — embedded analytics, anomaly detection, real-time ML features — have been quietly migrating that derived state out of the warehouse entirely. Materialize and RisingWave are excellent at this. The catch is that they’re separate databases. You operate them alongside Snowflake, you split your data model across two systems, you re-implement RBAC, and your single source of truth is now two sources of truth that diverge whenever the pipeline lags.",
+      "Melt already runs the CDC pipeline. We pull change streams out of Snowflake to keep the lake fresh — that’s how Lake-routed queries see committed data within seconds. Incremental Views asks the obvious question: if the same change stream is already flowing through the proxy, why are you paying a warehouse to recompute a GROUP BY user_id every minute?",
     ],
     alphaPromise: [
       {
         title: "dbt-compatible model files",
         description:
-          "Drop a .sql file into your existing dbt project with {{ config(materialized='incremental_view') }}. {{ ref() }} and {{ source() }} resolve through melt's catalog. The model body is the SQL melt incrementally maintains — no DSL, no second copy of the warehouse data model.",
+          "Drop a .sql file into your existing dbt project with {{ config(materialized='incremental_view') }}. {{ ref() }} and {{ source() }} resolve through melt’s catalog. The model body is the SQL melt incrementally maintains — no DSL, no second copy of the warehouse data model.",
       },
       {
         title: "Strategy auto-selection",
@@ -1234,17 +1234,17 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Per-view freshness SLOs",
         description:
-          "freshness_slo = '5s' in the model config makes the SLO first-class: melt sizes the operator graph's compute budget, watermarks lag against the SLO, and exports melt_incremental_view_lag_seconds per view so you can alert on it.",
+          "freshness_slo = '5s' in the model config makes the SLO first-class: melt sizes the operator graph’s compute budget, watermarks lag against the SLO, and exports melt_incremental_view_lag_seconds per view so you can alert on it.",
       },
       {
         title: "Configurable back-pressure",
         description:
-          "When upstream commits exceed a view's compute budget, the view degrades against its SLO instead of crashing the proxy. Three policies: degrade_freshness (lag grows, queries still return), pause_view (mark stale, fall back to upstream Snowflake on read), shed_load (drop the view from the graph until commits subside).",
+          "When upstream commits exceed a view’s compute budget, the view degrades against its SLO instead of crashing the proxy. Three policies: degrade_freshness (lag grows, queries still return), pause_view (mark stale, fall back to upstream Snowflake on read), shed_load (drop the view from the graph until commits subside).",
       },
       {
         title: "Materialized into Iceberg / DuckLake",
         description:
-          "The view's output lands as a regular lake table at its FQN. Spark, Trino, DuckDB, Snowflake-with-an-Iceberg-catalog — anything that reads the catalog reads the view. No melt lock-in for the derived state.",
+          "The view’s output lands as a regular lake table at its FQN. Spark, Trino, DuckDB, Snowflake-with-an-Iceberg-catalog — anything that reads the catalog reads the view. No melt lock-in for the derived state.",
       },
     ],
     architecture: {
@@ -1288,17 +1288,17 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Reuse the CDC pipeline melt already runs",
         description:
-          "Sync is already pulling change streams out of Snowflake to keep the lake fresh. Incremental Views is a second consumer of the same byte stream — zero new infra, zero new credentials, zero new failure modes that aren't already paged on.",
+          "Sync is already pulling change streams out of Snowflake to keep the lake fresh. Incremental Views is a second consumer of the same byte stream — zero new infra, zero new credentials, zero new failure modes that aren’t already paged on.",
       },
       {
         title: "Incremental compute in the proxy, not the warehouse",
         description:
-          "Dynamic Tables charge warehouse credits to keep derived state fresh. Incremental Views maintains state on the proxy's CPU, against state that lives in DuckDB and lands in S3. The warehouse never spins up to maintain a view, and a row that nobody reads costs nothing to keep current except a few microseconds of operator-graph CPU.",
+          "Dynamic Tables charge warehouse credits to keep derived state fresh. Incremental Views maintains state on the proxy’s CPU, against state that lives in DuckDB and lands in S3. The warehouse never spins up to maintain a view, and a row that nobody reads costs nothing to keep current except a few microseconds of operator-graph CPU.",
       },
       {
         title: "Per-view freshness SLOs are first-class",
         description:
-          "Materialize defaults to \"as fresh as possible,\" which is correct for a streaming database and wrong for a fleet of views with different criticality. The SLO is the contract — melt sizes the operator graph against it and tells you immediately when a view can't hold it. The user picks the trade-off, not the system.",
+          "Materialize defaults to \"as fresh as possible,\" which is correct for a streaming database and wrong for a fleet of views with different criticality. The SLO is the contract — melt sizes the operator graph against it and tells you immediately when a view can’t hold it. The user picks the trade-off, not the system.",
       },
       {
         title: "Materialize into Iceberg / DuckLake, not into melt",
@@ -1310,7 +1310,7 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Embedded analytics tiles",
         description:
-          "Active sessions in the last hour, revenue today, alerts firing right now — the kind of tile a SaaS product ships in its in-app dashboard. Today they're either backed by a 5-minute Snowflake task (visible staleness) or a hand-rolled cache. Incremental Views maintains them sub-second off CDC.",
+          "Active sessions in the last hour, revenue today, alerts firing right now — the kind of tile a SaaS product ships in its in-app dashboard. Today they’re either backed by a 5-minute Snowflake task (visible staleness) or a hand-rolled cache. Incremental Views maintains them sub-second off CDC.",
       },
       {
         title: "Anomaly-detection alerting",
@@ -1328,9 +1328,9 @@ chain = ["heuristic"]                  # static heuristic (default)
           "A user-segment feature view (\"user has placed 3+ orders in the last 24h\") currently produced by a Flink job consuming Kafka and writing to a feature store. With melt, the same view is a dbt model maintained off Snowflake CDC and materialized into Iceberg — the feature store reads it directly, and the data team owns the SQL.",
       },
       {
-        title: "Dashboards that should be live but aren't",
+        title: "Dashboards that should be live but aren’t",
         description:
-          "Internal exec dashboards that quote KPIs against last night's snapshot. The freshness expectation was never written down because the warehouse cost of keeping it current was prohibitive. Incremental Views removes the warehouse from the equation.",
+          "Internal exec dashboards that quote KPIs against last night’s snapshot. The freshness expectation was never written down because the warehouse cost of keeping it current was prohibitive. Incremental Views removes the warehouse from the equation.",
       },
     ],
     comparisons: [
@@ -1359,54 +1359,54 @@ chain = ["heuristic"]                  # static heuristic (default)
       {
         title: "Teams who want streaming freshness without a streaming database",
         description:
-          "You already run Snowflake. You already run dbt. You don't want a second database with its own RBAC, its own observability, and its own on-call rotation just to keep one dashboard tile current.",
+          "You already run Snowflake. You already run dbt. You don’t want a second database with its own RBAC, its own observability, and its own on-call rotation just to keep one dashboard tile current.",
       },
       {
         title: "dbt users with incremental models that need to be more frequent than 15 min",
         description:
-          "The model is already correct. The issue is that the scheduler can't run it fast enough without the warehouse bill becoming the line item the CFO asks about. Convert the materialization, keep the SQL.",
+          "The model is already correct. The issue is that the scheduler can’t run it fast enough without the warehouse bill becoming the line item the CFO asks about. Convert the materialization, keep the SQL.",
       },
       {
         title: "Embedded analytics product teams",
         description:
-          "You ship live tiles to customers. You've been pricing them against Snowflake credits per refresh per customer per minute, and the math is bad. Move the maintenance into the proxy; let the warehouse charge for genuinely new compute, not for keeping an aggregate warm.",
+          "You ship live tiles to customers. You’ve been pricing them against Snowflake credits per refresh per customer per minute, and the math is bad. Move the maintenance into the proxy; let the warehouse charge for genuinely new compute, not for keeping an aggregate warm.",
       },
       {
         title: "Real-time ML feature teams currently on Flink or Spark Structured Streaming",
         description:
-          "You'd rather own SQL than Java. You'd rather your features land in Iceberg than in a feature-store-shaped vendor lock-in.",
+          "You’d rather own SQL than Java. You’d rather your features land in Iceberg than in a feature-store-shaped vendor lock-in.",
       },
     ],
     faq: [
       {
         question: "Is this dbt-compatible?",
         answer:
-          "Yes — that's the whole point. An incremental view is a dbt model with materialized='incremental_view'. ref() and source() resolve through melt's catalog. dbt run registers the view with melt; melt does the maintenance. dbt test runs against the materialized output like any other table.",
+          "Yes — that’s the whole point. An incremental view is a dbt model with materialized='incremental_view'. ref() and source() resolve through melt’s catalog. dbt run registers the view with melt; melt does the maintenance. dbt test runs against the materialized output like any other table.",
       },
       {
-        question: "What's the freshness SLO floor?",
+        question: "What’s the freshness SLO floor?",
         answer:
-          "The alpha targets 1–5 second freshness for hash-aggregates and equi-joins over CDC-fed sources, and we'll publish exact numbers per operator class as the implementation hardens. There's no schedule and no minimum interval; the view refreshes when CDC delivers a row.",
+          "The alpha targets 1–5 second freshness for hash-aggregates and equi-joins over CDC-fed sources, and we’ll publish exact numbers per operator class as the implementation hardens. There’s no schedule and no minimum interval; the view refreshes when CDC delivers a row.",
       },
       {
-        question: "What happens when upstream throughput exceeds a view's compute budget?",
+        question: "What happens when upstream throughput exceeds a view’s compute budget?",
         answer:
           "You pick the policy. Default is degrade_freshness: the view keeps serving with growing lag. pause_view marks the view stale and falls back to executing the underlying SQL upstream. shed_load removes the view from the graph entirely until upstream commits subside. The system never silently corrupts the result.",
       },
       {
         question: "Where are the views stored?",
         answer:
-          "In your lake. The view's output lands as a regular Iceberg or DuckLake table at the view's FQN, in the same S3 / R2 / GCS bucket as the rest of the synced data. Anything that reads your catalog can read your views.",
+          "In your lake. The view’s output lands as a regular Iceberg or DuckLake table at the view’s FQN, in the same S3 / R2 / GCS bucket as the rest of the synced data. Anything that reads your catalog can read your views.",
       },
       {
         question: "Can I have a view that joins across Snowflake-only and lake-synced tables?",
         answer:
-          "Not in the alpha. An incremental view's sources have to be CDC-fed (synced base tables, or other incremental views). For a view that needs to join against a Snowflake-only table on every read, you can express it as a regular SQL view and let Dual Execution plan-split the query at read time.",
+          "Not in the alpha. An incremental view’s sources have to be CDC-fed (synced base tables, or other incremental views). For a view that needs to join against a Snowflake-only table on every read, you can express it as a regular SQL view and let Dual Execution plan-split the query at read time.",
       },
       {
         question: "How is this different from Snowflake Dynamic Tables?",
         answer:
-          "Three differences. (1) Freshness floor — Dynamic Tables' minimum TARGET_LAG is one minute; incremental views target seconds. (2) Compute model — Dynamic Tables charge warehouse credits to refresh whether anyone reads the view or not; incremental views maintain state on the proxy's CPU. (3) Portability — Dynamic Tables live inside Snowflake; incremental views materialize into Iceberg / DuckLake, queryable from any engine.",
+          "Three differences. (1) Freshness floor — Dynamic Tables’ minimum TARGET_LAG is one minute; incremental views target seconds. (2) Compute model — Dynamic Tables charge warehouse credits to refresh whether anyone reads the view or not; incremental views maintain state on the proxy’s CPU. (3) Portability — Dynamic Tables live inside Snowflake; incremental views materialize into Iceberg / DuckLake, queryable from any engine.",
       },
     ],
   },

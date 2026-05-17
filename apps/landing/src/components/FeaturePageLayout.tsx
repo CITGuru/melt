@@ -121,7 +121,7 @@ function AlphaBody({ feature }: { feature: Feature }) {
     <>
       {promises.length > 0 ? (
         <ThreeUp
-          eyebrow="What it'll do"
+          eyebrow="What it’ll do"
           title="The capabilities, at a glance."
           items={promises}
           background="white"
@@ -257,7 +257,7 @@ function FinalCTA({
         </h2>
         <p className="text-base md:text-lg text-muted max-w-xl">
           {isAlpha
-            ? "We're shipping this with a small group of design partners. Tell us about your workload and we'll set you up."
+            ? "We’re shipping this with a small group of design partners. Tell us about your workload and we’ll set you up."
             : "Connect your Snowflake account, swap your connection string, and watch your warehouse credits drop."}
         </p>
         <div className="flex flex-col sm:flex-row items-center gap-3">

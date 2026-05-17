@@ -19,7 +19,7 @@ export function Hero() {
             <span className="rounded-full bg-ink text-white px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase">
               New
             </span>
-            Why we&apos;re building melt
+            Why we’re building melt
             <ArrowRight />
           </Link>
         </div>

@@ -37,7 +37,7 @@ export const homeFaq: FaqBlock = {
       id: "sql-or-driver-changes",
       question: "Do I need to change my SQL or driver?",
       answer:
-        "No. Melt speaks Snowflake's REST wire protocol exactly, so JDBC, ODBC, the Python connector, Go, Looker, Sigma, Hex, and dbt connect unmodified. The only change is the connection-string host. Dialect deltas like IFF, QUALIFY, DATEADD, and PARSE_JSON are handled inside the proxy when a query routes to the lake, so your queries stay portable. Snowflake-only constructs (Snowpark, GENERATOR, INFORMATION_SCHEMA access, Time Travel, lateral FLATTEN) pass through to Snowflake unchanged rather than being rewritten.",
+        "No. Melt speaks Snowflake’s REST wire protocol exactly, so JDBC, ODBC, the Python connector, Go, Looker, Sigma, Hex, and dbt connect unmodified. The only change is the connection-string host. Dialect deltas like IFF, QUALIFY, DATEADD, and PARSE_JSON are handled inside the proxy when a query routes to the lake, so your queries stay portable. Snowflake-only constructs (Snowpark, GENERATOR, INFORMATION_SCHEMA access, Time Travel, lateral FLATTEN) pass through to Snowflake unchanged rather than being rewritten.",
     },
     {
       id: "routing-decision",
@@ -61,19 +61,19 @@ export const homeFaq: FaqBlock = {
       id: "sensitive-table-policy",
       question: "What happens when a query touches a sensitive table?",
       answer:
-        "Policy is configurable in three modes. The default passthrough mode forces any table with a Snowflake policy marker straight to Snowflake. allowlist keeps anything outside an explicit list off the lake. enforce rewrites references to sync-maintained filtered views so row-access and masking policies are honoured on the lake side. Sync polls Snowflake's POLICY_REFERENCES on a configurable interval and refreshes markers without a restart.",
+        "Policy is configurable in three modes. The default passthrough mode forces any table with a Snowflake policy marker straight to Snowflake. allowlist keeps anything outside an explicit list off the lake. enforce rewrites references to sync-maintained filtered views so row-access and masking policies are honoured on the lake side. Sync polls Snowflake’s POLICY_REFERENCES on a configurable interval and refreshes markers without a restart.",
     },
     {
       id: "setup-time",
       question: "How long does setup take?",
       answer:
-        'The Docker quickstart brings Melt up against a local Postgres and MinIO in one command, and routing decisions can be inspected immediately with melt route "<sql>" — no Snowflake credentials required to try the router offline. For a real Snowflake account, configuration is a single melt.toml file (account, sync allowlist, backend selection) and pointing your drivers at Melt\'s host. Production splits proxy and sync across pods; the shape is documented in the architecture guide.',
+        'The Docker quickstart brings Melt up against a local Postgres and MinIO in one command, and routing decisions can be inspected immediately with melt route "<sql>" — no Snowflake credentials required to try the router offline. For a real Snowflake account, configuration is a single melt.toml file (account, sync allowlist, backend selection) and pointing your drivers at Melt’s host. Production splits proxy and sync across pods; the shape is documented in the architecture guide.',
     },
     {
       id: "dbt-looker-agents",
       question: "Can I use Melt with dbt, Looker, and AI agents?",
       answer:
-        "Yes. Anything that speaks Snowflake's REST shape works unmodified — the official Snowflake Python connector connects to Melt with only host and port changed. JDBC and ODBC clients (Looker, Sigma, Hex, Tableau), Go, and dbt behave the same way. AI agents that generate SQL via these drivers route through Melt automatically, and they are typically the workload that gets the largest cost win because their queries are individually small and frequent — exactly the shape where Snowflake's per-query minimums hurt most.",
+        "Yes. Anything that speaks Snowflake’s REST shape works unmodified — the official Snowflake Python connector connects to Melt with only host and port changed. JDBC and ODBC clients (Looker, Sigma, Hex, Tableau), Go, and dbt behave the same way. AI agents that generate SQL via these drivers route through Melt automatically, and they are typically the workload that gets the largest cost win because their queries are individually small and frequent — exactly the shape where Snowflake’s per-query minimums hurt most.",
     },
   ],
 };
@@ -123,7 +123,7 @@ export const featureFaqBySlug: Record<string, FaqBlock> = {
         id: "vs-multi-cluster",
         question: "Why not just use Snowflake multi-cluster warehouses?",
         answer:
-          "Multi-cluster warehouses solve cross-cluster fan-out natively, but the feature is gated to Snowflake's Enterprise tier, which carries roughly a 50% per-credit premium. Warehouse routing gives Standard-tier accounts the same shape — a pool of warehouses with traffic distributed across them — without paying the Enterprise premium. You still own the warehouse list; Melt just picks the right one per statement.",
+          "Multi-cluster warehouses solve cross-cluster fan-out natively, but the feature is gated to Snowflake’s Enterprise tier, which carries roughly a 50% per-credit premium. Warehouse routing gives Standard-tier accounts the same shape — a pool of warehouses with traffic distributed across them — without paying the Enterprise premium. You still own the warehouse list; Melt just picks the right one per statement.",
       },
       {
         id: "driver-warehouse-binding",

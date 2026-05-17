@@ -61,7 +61,7 @@ export function Simplicity() {
           <h4 className="text-lg font-semibold tracking-tight">Speaks your dialect</h4>
           <p className="text-sm text-muted leading-relaxed">
             We translate Snowflake SQL to DuckDB on the fly — IFF, QUALIFY,
-            FLATTEN, time-zone arithmetic — and refuse routes that can&apos;t round-trip.
+            FLATTEN, time-zone arithmetic — and refuse routes that can’t round-trip.
           </p>
         </Card>
 
@@ -75,7 +75,7 @@ export function Simplicity() {
           <h4 className="text-lg font-semibold tracking-tight">View things your way</h4>
           <p className="text-sm text-muted leading-relaxed">
             Toggle between dashboards, route tables, kanban-style sync state, or
-            timeline views — pick the lens that fits your team&apos;s shift.
+            timeline views — pick the lens that fits your team’s shift.
           </p>
         </Card>
       </div>

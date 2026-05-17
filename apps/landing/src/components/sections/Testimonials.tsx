@@ -1,6 +1,6 @@
 const featured = {
   quote:
-    "Melt is by far the cleanest piece of data infrastructure we&apos;ve dropped into production this year.",
+    "Melt is by far the cleanest piece of data infrastructure we’ve dropped into production this year.",
   name: "Marta P.",
   role: "VP Data, Series-C SaaS",
 };

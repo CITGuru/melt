@@ -86,7 +86,7 @@ export default function PrivacyPage() {
       <p>
         Depending on your jurisdiction, you may have rights to access,
         correct, export, or delete your personal information. Email{" "}
-        <a href="mailto:privacy@meltcomputing.com">privacy@meltcomputing.com</a> and we&apos;ll
+        <a href="mailto:privacy@meltcomputing.com">privacy@meltcomputing.com</a> and we’ll
         respond within 30 days.
       </p>
 
